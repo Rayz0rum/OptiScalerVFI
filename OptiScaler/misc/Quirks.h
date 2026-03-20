@@ -252,6 +252,10 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("outlaws_plus.exe", GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs,
                 GameQuirk::DisableDxgiSpoofing),
 
+    // Crimson Desert
+    // Spoofing disabled due to "unsupported GPU" error
+    QUIRK_ENTRY("crimsondesert.exe", GameQuirk::DisableDxgiSpoofing),
+
     // SL spoof enough to unlock everything DLSS/No spoof needed for DLSS inputs
     //
     // The Witcher 3, Alan Wake 2, Crysis 3 Remastered, Marvel's Guardians of the Galaxy, UNCHARTED: Legacy of Thieves
