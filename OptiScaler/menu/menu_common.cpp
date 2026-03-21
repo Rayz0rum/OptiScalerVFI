@@ -2886,8 +2886,8 @@ bool MenuCommon::RenderMenu()
 
                 // OptiFG requirements
                 auto constexpr optiFgIndex = (uint32_t) FGInput::Upscaler;
-                inputOptions[optiFgIndex].set_disabled(state.api == API::DX11 || state.api == API::Vulkan,
-                                                       "Unsupported API");
+                inputOptions[optiFgIndex].set_disabled(
+                    state.swapchainApi == API::DX11 || state.swapchainApi == API::Vulkan, "Unsupported API");
 
                 if (!inputOptions[optiFgIndex].disabled && state.activeFgOutput == FGOutput::FSRFG &&
                     !FfxApiProxy::IsFGReady() && !fsr31InitTried)

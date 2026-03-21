@@ -4,8 +4,6 @@
 class LibraryLoadHooks
 {
   private:
-    inline static bool _overlayMethodsCalled = false;
-
     static void CheckModulesInMemory();
     static bool StartsWithInsensitive(std::wstring_view str, std::wstring_view prefix);
 

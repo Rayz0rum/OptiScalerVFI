@@ -1,63 +1,21 @@
 #include "pch.h"
 #include "nvapi_calls.h"
+#include "proxies/Dxgi_Proxy.h"
+#include <misc/IdentifyGpu.h>
+
+using Microsoft::WRL::ComPtr;
 
 LowLatency* LowLatencyCtx::lowlatency_ctx = nullptr;
 static auto init_mutex = std::mutex {};
 
 namespace nvapi_calls
 {
-bool Init()
-{
-    if (!device_id)
-    {
-        IDXGIFactory1* factory = nullptr;
-        if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**) &factory)))
-        {
-            LOG_ERROR("Failed to create DXGI Factory");
-            return false;
-        }
-
-        IDXGIAdapter1* adapter = nullptr;
-        if (FAILED(factory->EnumAdapters1(0, &adapter)))
-        {
-            LOG_ERROR("Failed to enumerate adapters");
-            factory->Release();
-            return false;
-        }
-
-        DXGI_ADAPTER_DESC1 adapter_desc;
-        if (FAILED(adapter->GetDesc1(&adapter_desc)))
-        {
-            LOG_ERROR("Failed to get adapter description");
-            adapter->Release();
-            factory->Release();
-            return false;
-        }
-
-        luid = adapter_desc.AdapterLuid;
-        device_id = adapter_desc.DeviceId;
-        vendor_id = adapter_desc.VendorId;
-        subsystem_id = adapter_desc.SubSysId;
-        revision_id = adapter_desc.Revision;
-
-        adapter->Release();
-        factory->Release();
-    }
-
-    return true;
-}
 
 NvAPI_Status __cdecl NvAPI_Initialize()
 {
     std::scoped_lock lock(init_mutex);
 
     ref_count++;
-
-    if (!Init())
-    {
-        --ref_count;
-        return ERROR();
-    }
 
     return OK();
 }
@@ -182,10 +140,9 @@ NvAPI_Status __cdecl NvAPI_GPU_GetArchInfo(NvPhysicalGpuHandle handle, NV_GPU_AR
 
 NvAPI_Status __cdecl NvAPI_GPU_GetLogicalGpuInfo(NvLogicalGpuHandle logicalHandle, NV_LOGICAL_GPU_DATA* logicalGpuData)
 {
-    if (!Init())
-        return ERROR();
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
 
-    memcpy(logicalGpuData->pOSAdapterId, &luid, sizeof(luid));
+    memcpy(logicalGpuData->pOSAdapterId, &primaryGpu.luid, sizeof(primaryGpu.luid));
     logicalGpuData->physicalGpuHandles[0] = nullptr;
     logicalGpuData->physicalGpuCount = 1;
     return OK();
@@ -194,13 +151,12 @@ NvAPI_Status __cdecl NvAPI_GPU_GetLogicalGpuInfo(NvLogicalGpuHandle logicalHandl
 NvAPI_Status __cdecl NvAPI_GPU_GetPCIIdentifiers(NvPhysicalGpuHandle hPhysicalGpu, NvU32* pDeviceId,
                                                  NvU32* pSubSystemId, NvU32* pRevisionId, NvU32* pExtDeviceId)
 {
-    if (!Init())
-        return ERROR();
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
 
-    *pDeviceId = (device_id << 16) | vendor_id;
-    *pSubSystemId = subsystem_id;
-    *pRevisionId = revision_id;
-    *pExtDeviceId = device_id;
+    *pDeviceId = (primaryGpu.deviceId << 16) | primaryGpu.vendorId;
+    *pSubSystemId = primaryGpu.subsystemId;
+    *pRevisionId = primaryGpu.revisionId;
+    *pExtDeviceId = primaryGpu.deviceId;
     return OK();
 }
 
@@ -253,10 +209,9 @@ NvAPI_Status __cdecl NvAPI_GPU_GetAllClockFrequencies(NvPhysicalGpuHandle hPhysi
 
 NvAPI_Status __cdecl NvAPI_GPU_GetAdapterIdFromPhysicalGpu(NvPhysicalGpuHandle hPhysicalGpu, void* pOSAdapterId)
 {
-    if (!Init())
-        return ERROR();
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
 
-    memcpy(pOSAdapterId, &luid, sizeof(luid));
+    memcpy(pOSAdapterId, &primaryGpu.luid, sizeof(primaryGpu.luid));
     return OK();
 }
 
@@ -391,9 +346,6 @@ NvAPI_Status __cdecl NvAPI_D3D_SetResourceHint() { return ERROR_VALUE(NVAPI_NO_I
 
 NvAPI_Status __cdecl NvAPI_D3D_GetSleepStatus(IUnknown* pDevice, NV_GET_SLEEP_STATUS_PARAMS* pGetSleepStatusParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!pDevice || !pGetSleepStatusParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -402,9 +354,6 @@ NvAPI_Status __cdecl NvAPI_D3D_GetSleepStatus(IUnknown* pDevice, NV_GET_SLEEP_ST
 
 NvAPI_Status __cdecl NvAPI_D3D_GetLatency(IUnknown* pDevice, NV_LATENCY_RESULT_PARAMS* pGetLatencyParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!pDevice || !pGetLatencyParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
     ;
@@ -415,9 +364,6 @@ NvAPI_Status __cdecl NvAPI_D3D_GetLatency(IUnknown* pDevice, NV_LATENCY_RESULT_P
 
 NvAPI_Status __cdecl NvAPI_D3D_SetSleepMode(IUnknown* pDevice, NV_SET_SLEEP_MODE_PARAMS* pSetSleepModeParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!pDevice || !pSetSleepModeParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -426,9 +372,6 @@ NvAPI_Status __cdecl NvAPI_D3D_SetSleepMode(IUnknown* pDevice, NV_SET_SLEEP_MODE
 
 NvAPI_Status __cdecl NvAPI_D3D_SetLatencyMarker(IUnknown* pDevice, NV_LATENCY_MARKER_PARAMS* pSetLatencyMarkerParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!pDevice || !pSetLatencyMarkerParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -437,9 +380,6 @@ NvAPI_Status __cdecl NvAPI_D3D_SetLatencyMarker(IUnknown* pDevice, NV_LATENCY_MA
 
 NvAPI_Status __cdecl NvAPI_D3D_Sleep(IUnknown* pDevice)
 {
-    if (!Init())
-        return ERROR();
-
     if (!pDevice)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -709,9 +649,6 @@ NvAPI_Status __cdecl NvAPI_Vulkan_DestroyLowLatencyDevice(HANDLE vkDevice)
 NvAPI_Status __cdecl NvAPI_Vulkan_GetSleepStatus(HANDLE vkDevice,
                                                  NV_VULKAN_GET_SLEEP_STATUS_PARAMS* pGetSleepStatusParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!vkDevice || !pGetSleepStatusParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -720,9 +657,6 @@ NvAPI_Status __cdecl NvAPI_Vulkan_GetSleepStatus(HANDLE vkDevice,
 
 NvAPI_Status __cdecl NvAPI_Vulkan_SetSleepMode(HANDLE vkDevice, NV_VULKAN_SET_SLEEP_MODE_PARAMS* pSetSleepModeParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!vkDevice || !pSetSleepModeParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -731,9 +665,6 @@ NvAPI_Status __cdecl NvAPI_Vulkan_SetSleepMode(HANDLE vkDevice, NV_VULKAN_SET_SL
 
 NvAPI_Status __cdecl NvAPI_Vulkan_Sleep(HANDLE vkDevice, NvU64 signalValue)
 {
-    if (!Init())
-        return ERROR();
-
     if (!vkDevice)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -753,9 +684,6 @@ NvAPI_Status __cdecl NvAPI_Vulkan_Sleep(HANDLE vkDevice, NvU64 signalValue)
 
 NvAPI_Status __cdecl NvAPI_Vulkan_GetLatency(HANDLE vkDevice, NV_VULKAN_LATENCY_RESULT_PARAMS* pGetLatencyParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!vkDevice || !pGetLatencyParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 
@@ -765,9 +693,6 @@ NvAPI_Status __cdecl NvAPI_Vulkan_GetLatency(HANDLE vkDevice, NV_VULKAN_LATENCY_
 NvAPI_Status __cdecl NvAPI_Vulkan_SetLatencyMarker(HANDLE vkDevice,
                                                    NV_VULKAN_LATENCY_MARKER_PARAMS* pSetLatencyMarkerParams)
 {
-    if (!Init())
-        return ERROR();
-
     if (!vkDevice || !pSetLatencyMarkerParams)
         return ERROR_VALUE(NVAPI_INVALID_ARGUMENT);
 

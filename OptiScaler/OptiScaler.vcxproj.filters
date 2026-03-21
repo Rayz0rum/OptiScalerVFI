@@ -797,9 +797,6 @@
     <ClInclude Include="nvapi\fakenvapi\nvapi_calls.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="nvapi\fakenvapi\spoof.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="nvapi\fakenvapi\fn_util.h">
       <Filter>Header Files</Filter>
     </ClInclude>

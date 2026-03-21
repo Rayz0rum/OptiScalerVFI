@@ -45,6 +45,8 @@ struct GpuInformation
     std::string name {};
     VendorId::Value vendorId = VendorId::Invalid;
     uint32_t deviceId = 0x0;
+    uint32_t subsystemId = 0x0;
+    uint32_t revisionId = 0x0;
     size_t dedicatedVramInBytes = 0;
     bool usesDxvk = false;
     bool usesVkd3dProton = false;

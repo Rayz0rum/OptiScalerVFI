@@ -33,12 +33,6 @@ static auto drs = 1U;
 static auto drs_session = reinterpret_cast<NvDRSSessionHandle>(&drs);
 static auto drs_profile = reinterpret_cast<NvDRSProfileHandle>(&drs);
 
-static LUID luid = {};
-static UINT device_id = {};
-static UINT vendor_id = {};
-static UINT subsystem_id = {};
-static UINT revision_id = {};
-
 static uint64_t ref_count = 0;
 
 static VkSemaphore low_latency_semaphore = VK_NULL_HANDLE;

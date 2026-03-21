@@ -65,6 +65,7 @@ bool AntiLag2::init(IUnknown* pDevice)
         if (hr == S_OK)
         {
             AL2Proxy::disableAl2Kill = true;
+            ScopedSkipVulkanHooks skipVulkanHooks {};
             HRESULT init_return = AMD::AntiLag2DX12::Initialize(&dx12_ctx, device);
             AL2Proxy::disableAl2Kill = false;
             if (init_return == S_OK)
@@ -79,6 +80,8 @@ bool AntiLag2::init(IUnknown* pDevice)
         }
         else
         {
+            // dxvk + windows, antilag2 dx11 calls vkCreateDevice late and kills the overlay
+            ScopedSkipVulkanHooks skipVulkanHooks {};
             HRESULT init_return = AMD::AntiLag2DX11::Initialize(&dx11_ctx);
             if (init_return == S_OK)
             {

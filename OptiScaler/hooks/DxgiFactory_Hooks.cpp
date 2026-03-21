@@ -291,31 +291,10 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
             {
                 if (device != nullptr)
                 {
-                    // Update current D3D12 device and adapter
+                    // Update current D3D12 device
                     if (State::Instance().currentD3D12Device != device)
                     {
                         State::Instance().currentD3D12Device = device;
-
-                        IDXGIDevice* dxgiDevice = nullptr;
-                        if (device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)) == S_OK)
-                        {
-                            IDXGIAdapter* adapter = nullptr;
-                            if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                            {
-                                adapter->GetDesc(&State::Instance().currentD3D12AdepterDesc);
-                                adapter->Release();
-                            }
-                            else
-                            {
-                                State::Instance().currentD3D12AdepterDesc = {};
-                            }
-
-                            dxgiDevice->Release();
-                        }
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D12AdepterDesc = {};
                     }
 
                     LOG_INFO("Captured D3D12 device from command queue: {:X}", (UINT64) device);
@@ -352,33 +331,13 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
         if (pDevice->QueryInterface(IID_PPV_ARGS(&device)) == S_OK)
         {
             D3D11Hooks::HookToDevice(device);
+
             device->Release();
 
-            // Update current D3D11 device and adapter
+            // Update current D3D11 device
             if (State::Instance().currentD3D11Device != device)
             {
                 State::Instance().currentD3D11Device = device;
-
-                IDXGIDevice* dxgiDevice = nullptr;
-                if (device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)) == S_OK)
-                {
-                    IDXGIAdapter* adapter = nullptr;
-                    if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                    {
-                        adapter->GetDesc(&State::Instance().currentD3D11AdepterDesc);
-                        adapter->Release();
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D11AdepterDesc = {};
-                    }
-
-                    dxgiDevice->Release();
-                }
-            }
-            else
-            {
-                State::Instance().currentD3D11AdepterDesc = {};
             }
         }
     }
@@ -621,31 +580,10 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
             {
                 if (device != nullptr)
                 {
-                    // Update current D3D12 device and adapter
+                    // Update current D3D12 device
                     if (State::Instance().currentD3D12Device != device)
                     {
                         State::Instance().currentD3D12Device = device;
-
-                        IDXGIDevice* dxgiDevice = nullptr;
-                        if (device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)) == S_OK)
-                        {
-                            IDXGIAdapter* adapter = nullptr;
-                            if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                            {
-                                adapter->GetDesc(&State::Instance().currentD3D12AdepterDesc);
-                                adapter->Release();
-                            }
-                            else
-                            {
-                                State::Instance().currentD3D12AdepterDesc = {};
-                            }
-
-                            dxgiDevice->Release();
-                        }
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D12AdepterDesc = {};
                     }
 
                     LOG_INFO("Captured D3D12 device from command queue: {:X}", (UINT64) device);
@@ -687,31 +625,10 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
 
             device->Release();
 
-            // Update current D3D11 device and adapter
+            // Update current D3D11 device
             if (State::Instance().currentD3D11Device != device)
             {
                 State::Instance().currentD3D11Device = device;
-
-                IDXGIDevice* dxgiDevice = nullptr;
-                if (device->QueryInterface(IID_PPV_ARGS(&dxgiDevice)) == S_OK)
-                {
-                    IDXGIAdapter* adapter = nullptr;
-                    if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                    {
-                        adapter->GetDesc(&State::Instance().currentD3D11AdepterDesc);
-                        adapter->Release();
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D11AdepterDesc = {};
-                    }
-
-                    dxgiDevice->Release();
-                }
-            }
-            else
-            {
-                State::Instance().currentD3D11AdepterDesc = {};
             }
         }
     }

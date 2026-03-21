@@ -262,11 +262,19 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
         // Game -> Opti -> Overlay
         // And Opti menu works with Overlay without issues
 
+        std::filesystem::path path(libName);
+        auto dllName = path.filename().string();
+
+        // Strip the path and don't hook it the dll is already loaded
+        // Hopefully something doesn't try to load two different overlay dlls with the same name
+        if (GetModuleHandleA(dllName.c_str()))
+            return nullptr;
+
         auto module = NtdllProxy::LoadLibraryExW_Ldr(libName.c_str(), NULL, 0);
 
         if (module != nullptr)
         {
-            if (/*!_overlayMethodsCalled && */ DxgiProxy::Module() != nullptr)
+            if (DxgiProxy::Module() != nullptr)
             {
                 LOG_INFO("Calling CreateDxgiFactory methods for overlay!");
                 IDXGIFactory* factory = nullptr;
@@ -290,8 +298,6 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
                     LOG_DEBUG("CreateDxgiFactory2 ok");
                     factory2->Release();
                 }
-
-                _overlayMethodsCalled = true;
             }
 
             return module;

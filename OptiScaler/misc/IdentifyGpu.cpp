@@ -80,6 +80,8 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfo()
             gpuInfo.luid = adapterDesc.AdapterLuid;
             gpuInfo.vendorId = (VendorId::Value) adapterDesc.VendorId;
             gpuInfo.deviceId = adapterDesc.DeviceId;
+            gpuInfo.subsystemId = adapterDesc.SubSysId;
+            gpuInfo.revisionId = adapterDesc.Revision;
             gpuInfo.dedicatedVramInBytes = adapterDesc.DedicatedVideoMemory;
 
             std::wstring szName(adapterDesc.Description);
@@ -140,7 +142,9 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfo()
                 gpuInfo.fsr4Capable = true;
 
             // Query amdxc for a specific intrinsics support, FSR 4 checks more but hopefully this one is enough
+            // amdxc on Windows hates vkd3d-proton's device, on Linux it's fine
             if (!gpuInfo.fsr4Capable && gpuInfo.d3d12device &&
+                (State::Instance().isRunningOnLinux || !gpuInfo.usesVkd3dProton) &&
                 SUCCEEDED(AmdExtD3DCreateInterface(gpuInfo.d3d12device, IID_PPV_ARGS(&amdExtD3DFactory))))
             {
                 ComPtr<IAmdExtD3DShaderIntrinsics> amdExtD3DShaderIntrinsics = nullptr;
@@ -300,6 +304,8 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
 
         gpuInfo.vendorId = (VendorId::Value) props2.properties.vendorID;
         gpuInfo.deviceId = props2.properties.deviceID;
+        gpuInfo.subsystemId = 0x0; // Not provided by Vulkan
+        gpuInfo.revisionId = 0x0;
         gpuInfo.name = std::string(props2.properties.deviceName);
         gpuInfo.softwareAdapter = props2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
 

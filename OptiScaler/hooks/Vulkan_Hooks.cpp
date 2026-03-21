@@ -149,16 +149,18 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 
     auto result = o_vkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
 
-    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks &&
-        Config::Instance()->OverlayMenu.value_or_default())
+    if (result == VK_SUCCESS && Config::Instance()->OverlayMenu.value_or_default())
     {
-        MenuOverlayVk::DestroyVulkanObjects(false);
+        if (!State::Instance().vulkanSkipHooks)
+        {
+            MenuOverlayVk::DestroyVulkanObjects(false);
 
-        _PD = physicalDevice;
-        LOG_DEBUG("_PD captured: {0:X}", (UINT64) _PD);
-        _device = *pDevice;
-        LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
-        HookDevice(_device);
+            _PD = physicalDevice;
+            LOG_DEBUG("_PD captured: {0:X}", (UINT64) _PD);
+            _device = *pDevice;
+            LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
+            HookDevice(_device);
+        }
 
         ScopedSkipSpoofing skipSpoofing {};
 

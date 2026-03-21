@@ -21,8 +21,6 @@ class NtdllHooks
     inline static NtdllProxy::PFN_LdrLoadDll o_LdrLoadDll = nullptr;
     inline static NtdllProxy::PFN_LdrUnloadDll o_LdrUnloadDll = nullptr;
 
-    inline static bool _overlayMethodsCalled = false;
-
     static NTSTATUS NTAPI hkLdrLoadDll(PWSTR PathToFile, PULONG Flags, PUNICODE_STRING ModuleFileName,
                                        PHANDLE ModuleHandle)
     {

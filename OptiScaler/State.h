@@ -270,9 +270,7 @@ class State
     IDXGISwapChain* currentRealSwapchain = nullptr;
     IDXGISwapChain* currentFGSwapchain = nullptr;
     ID3D12Device* currentD3D12Device = nullptr;
-    DXGI_ADAPTER_DESC currentD3D12AdepterDesc = {};
     ID3D11Device* currentD3D11Device = nullptr;
-    DXGI_ADAPTER_DESC currentD3D11AdepterDesc = {};
     ID3D12CommandQueue* currentCommandQueue = nullptr;
     VkDevice currentVkDevice = nullptr;
     DXGI_SWAP_CHAIN_DESC currentSwapchainDesc {};
