@@ -229,18 +229,10 @@ VkResult VulkanSpoofing::hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, c
     if (pCreateInfo == nullptr)
         return VK_ERROR_INITIALIZATION_FAILED;
 
-    bool skipExtensions = false;
+    thread_local bool skipExtensions = false;
     if (pCreateInfo->pApplicationInfo != nullptr && pCreateInfo->pApplicationInfo->pApplicationName != nullptr)
     {
         LOG_DEBUG("ApplicationName: {}", pCreateInfo->pApplicationInfo->pApplicationName);
-
-        // WAR: Something gets stuck trying to create instance with this name
-        // probably doesn't need extension changes anyway as enabledExtensionCount == 0
-        if (pCreateInfo->enabledExtensionCount == 0 &&
-            std::string(pCreateInfo->pApplicationInfo->pApplicationName).contains("AdapterQuery"))
-        {
-            skipExtensions = true;
-        }
     }
 
     static std::vector<const char*> newExtensionList;
@@ -255,7 +247,18 @@ VkResult VulkanSpoofing::hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, c
             newExtensionList.push_back(pCreateInfo->ppEnabledExtensionNames[i]);
         }
 
+        // To prevent a loop
+        // Applies to hooked:
+        // vkCreateInstance
+        // vkGetInstanceProcAddr
+        // vkEnumeratePhysicalDevices
+        // vkGetPhysicalDeviceProperties2
+        // vkGetPhysicalDeviceMemoryProperties
+        // vkDestroyInstance
+        skipExtensions = true;
         static auto primaryGpu = IdentifyGpu::getPrimaryGpuVulkan();
+        skipExtensions = false;
+
         if (primaryGpu.dlssCapable && Config::Instance()->DLSSEnabled.value_or_default())
         {
             LOG_INFO("Adding NVNGX Vulkan extensions");
