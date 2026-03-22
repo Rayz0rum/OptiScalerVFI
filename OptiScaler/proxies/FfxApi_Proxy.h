@@ -871,6 +871,10 @@ class FfxApiProxy
     static ffxReturnCode_t D3D12_Configure(ffxContext* context, const ffxConfigureDescHeader* desc)
     {
         auto type = GetType(desc->type);
+
+        if (type == FFXStructType::General && contextToType.contains(context))
+            type = contextToType[context];
+
         auto isFg = type == FFXStructType::FG || type == FFXStructType::SwapchainDX12;
 
         if (isFg && fg_dx12.dll != nullptr)
