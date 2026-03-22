@@ -85,6 +85,7 @@ class State
 
     // DLSSG
     bool NukemsFilesAvailable = false;
+    bool NukemsMFG = false;
     bool DLSSGDebugView = false;
     bool DLSSGInterpolatedOnly = false;
     uint32_t delayMenuRenderBy = 0;

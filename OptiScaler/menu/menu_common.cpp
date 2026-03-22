@@ -4076,7 +4076,8 @@ bool MenuCommon::RenderMenu()
                 }
 
                 // Nukems Mod
-                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems)
+                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems &&
+                    !State::Instance().NukemsMFG)
                 {
                     SeparatorWithHelpMarker("Frame Generation (FSR3-FG via Nukem's DLSSG)",
                                             "Requires Nukem's dlssg_to_fsr3 dll\nSelect DLSS-FG in-game");
@@ -4139,6 +4140,13 @@ bool MenuCommon::RenderMenu()
                             }
                         }
                     }
+                }
+
+                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems &&
+                    State::Instance().NukemsMFG)
+                {
+                    ImGui::Text(
+                        "Using Nukem's via the MFG mod from fsr3fg_mfg.asi\nSelect MFG from the game's options");
                 }
 
                 // FSR-FG Inputs

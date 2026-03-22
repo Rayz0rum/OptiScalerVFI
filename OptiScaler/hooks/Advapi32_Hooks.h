@@ -22,8 +22,10 @@ static PFN_RegQueryValueExA o_RegQueryValueExA = nullptr;
 VALIDATE_HOOK(hkRegOpenKeyExW, PFN_RegOpenKeyExW)
 static LSTATUS hkRegOpenKeyExW(HKEY hKey, LPCWSTR lpSubKey, DWORD ulOptions, REGSAM samDesired, PHKEY phkResult)
 {
-    if (lpSubKey != nullptr && (wcscmp(L"SOFTWARE\\NVIDIA Corporation\\Global", lpSubKey) == 0 ||
-                                wcscmp(L"SYSTEM\\ControlSet001\\Services\\nvlddmkm", lpSubKey) == 0))
+    if (lpSubKey != nullptr &&
+        (wcscmp(L"SOFTWARE\\NVIDIA Corporation\\Global", lpSubKey) == 0 ||
+         wcscmp(L"SYSTEM\\ControlSet001\\Services\\nvlddmkm", lpSubKey) == 0) &&
+        !State::Instance().NukemsMFG)
     {
         *phkResult = signatureMark;
         return 0;

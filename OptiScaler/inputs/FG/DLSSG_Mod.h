@@ -51,7 +51,7 @@ class DLSSGMod
     // DLSSGTOFSR3_EnableInterpolatedFramesOnly
     static inline void setSetting(const wchar_t* setting, const wchar_t* value)
     {
-        if (is120orNewer())
+        if (is120orNewer() && !State::Instance().NukemsMFG)
         {
             SetEnvironmentVariable(setting, value);
             _refreshGlobalConfiguration();
@@ -66,8 +66,40 @@ class DLSSGMod
         if (_dx12_inited || Config::Instance()->FGInput.value_or_default() != FGInput::Nukems)
             return;
 
-        if (_dll == nullptr)
+        auto dllPath = Util::DllPath().parent_path() / "fsr3fg_mfg.asi";
+
+        // set early so the hooks know
+        State::Instance().NukemsMFG = true;
+        _dll = NtdllProxy::LoadLibraryExW_Ldr(dllPath.c_str(), NULL, 0);
+
+        if (_dll != nullptr)
         {
+            _DLSSG_D3D12_Init = (PFN_D3D12_Init) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_Init");
+            _DLSSG_D3D12_Init_Ext = (PFN_D3D12_Init_Ext) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_Init_Ext");
+            _DLSSG_D3D12_Shutdown = (PFN_D3D12_Shutdown) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_Shutdown");
+            _DLSSG_D3D12_Shutdown1 = (PFN_D3D12_Shutdown1) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_Shutdown1");
+            _DLSSG_D3D12_GetScratchBufferSize =
+                (PFN_D3D12_GetScratchBufferSize) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_GetScratchBufferSize");
+            _DLSSG_D3D12_CreateFeature =
+                (PFN_D3D12_CreateFeature) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_CreateFeature");
+            _DLSSG_D3D12_ReleaseFeature =
+                (PFN_D3D12_ReleaseFeature) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_ReleaseFeature");
+            _DLSSG_D3D12_GetFeatureRequirements =
+                (PFN_D3D12_GetFeatureRequirements) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_GetFeatureRequirements");
+            _DLSSG_D3D12_EvaluateFeature =
+                (PFN_D3D12_EvaluateFeature) GetProcAddress(_dll, "DLSSG_NVSDK_NGX_D3D12_EvaluateFeature");
+            _DLSSG_D3D12_PopulateParameters_Impl = (PFN_D3D12_PopulateParameters_Impl) GetProcAddress(
+                _dll, "DLSSG_NVSDK_NGX_D3D12_PopulateParameters_Impl");
+            _dx12_inited = true;
+
+            LOG_INFO("DLSSG MFG Mod initialized for DX12");
+
+            return;
+        }
+        else
+        {
+            State::Instance().NukemsMFG = false;
+
             auto dllPath = Util::DllPath().parent_path() / "dlssg_to_fsr3_amd_is_better.dll";
             _dll = NtdllProxy::LoadLibraryExW_Ldr(dllPath.c_str(), NULL, 0);
         }
