@@ -2277,7 +2277,7 @@ bool MenuCommon::RenderMenu()
 
                     std::string joinedUpscalers(joined.begin(), joined.end());
 
-                    ImGui::Text("Please select %s as upscaler\nfrom game options and enter the game\nto enable "
+                    ImGui::Text("Please select %s as upscaler\nfrom game options and load into the game\nto enable "
                                 "upscaler settings.\n",
                                 joinedUpscalers.c_str());
 
@@ -3464,7 +3464,14 @@ bool MenuCommon::RenderMenu()
                                 LOG_DEBUG("DebugView set FGChanged");
                             }
                         }
-                        ShowHelpMarker("Enable FSR3.1-FG Debug view");
+                        ShowHelpMarker("Enable FSR3.1-FG Debug view\n\n"
+                                       "Top left: Game Motion Vectors\n"
+                                       "Top middle: GMV Depth\n"
+                                       "Top right: Optical Flow MV\n"
+                                       "Middle: Interpolated frame only\n"
+                                       "Bottom left: Disocclusion mask\n"
+                                       "Bottom middle: Interpolation source (w/o UI)\n"
+                                       "Bottom right: HUDless resource");
 
                         ImGui::SameLine(0.0f, 16.0f);
 
