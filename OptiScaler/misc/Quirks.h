@@ -40,6 +40,7 @@ enum class GameQuirk : uint64_t
     SpoofRegistry,
     DisableFakenvapi,
     DoNotPreserveFGSwapChain,
+    OldOverlayMenu,
 
     // Quirks that are applied deeper in code
     CyberpunkHudlessFixes,
@@ -149,13 +150,13 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("monster_hunter_stories_3_twisted_reflection.exe", GameQuirk::RestoreComputeSigOnNonNvidia,
                 GameQuirk::DisableDxgiSpoofing, GameQuirk::RestoreComputeSigOnNvidia),
     // REF PDUpscaler branch
-    QUIRK_ENTRY("re2.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("re3.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("re4.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("re7.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("re8.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("devilmaycry5.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("streetfighter6.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("re2.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("re3.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("re4.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("re7.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("re8.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("devilmaycry5.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
+    QUIRK_ENTRY("streetfighter6.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::OldOverlayMenu),
 
     // Cyberpunk 2077
     // SL spoof enough to unlock everything DLSS
