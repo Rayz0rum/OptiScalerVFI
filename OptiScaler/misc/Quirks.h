@@ -43,7 +43,8 @@ enum class GameQuirk : uint64_t
     OldOverlayMenu,
 
     // Quirks that are applied deeper in code
-    CyberpunkHudlessFixes,
+    CyberpunkHudlessState,
+    FSRFGHudlessMismatchFixup, // Shader extracts UI from swapchain, alpha cut off and apply to hudless
     SkipFsr3Method,
     FastFeatureReset,
     LoadD3D12Manually,
@@ -160,8 +161,8 @@ static const QuirkEntry quirkTable[] = {
 
     // Cyberpunk 2077
     // SL spoof enough to unlock everything DLSS
-    QUIRK_ENTRY("cyberpunk2077.exe", GameQuirk::CyberpunkHudlessFixes, GameQuirk::DisableHudfix,
-                GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("cyberpunk2077.exe", GameQuirk::CyberpunkHudlessState, GameQuirk::FSRFGHudlessMismatchFixup,
+                GameQuirk::DisableHudfix, GameQuirk::DisableDxgiSpoofing),
 
     // Forza Horizon 5
     // SL spoof enough to unlock everything DLSS
@@ -242,7 +243,7 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("spider-man.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("milesmorales.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("spider-man2.exe", GameQuirk::DisableDxgiSpoofing),
-    QUIRK_ENTRY("ds2.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("ds2.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::FSRFGHudlessMismatchFixup),
 
     // Dead Space Remake
     // Override Vsync required to avoid crash on boot
