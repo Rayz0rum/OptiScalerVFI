@@ -149,6 +149,14 @@ static const QuirkEntry quirkTable[] = {
                 GameQuirk::RestoreComputeSigOnNvidia),
     QUIRK_ENTRY("monster_hunter_stories_3_twisted_reflection.exe", GameQuirk::RestoreComputeSigOnNonNvidia,
                 GameQuirk::DisableDxgiSpoofing, GameQuirk::RestoreComputeSigOnNvidia),
+    // REF PDUpscaler branch
+    QUIRK_ENTRY("re2.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("re3.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("re4.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("re7.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("re8.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("devilmaycry5.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("streetfighter6.exe", GameQuirk::DisableDxgiSpoofing),
 
     // Cyberpunk 2077
     // SL spoof enough to unlock everything DLSS
@@ -253,6 +261,10 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("outlaws_plus.exe", GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs,
                 GameQuirk::DisableDxgiSpoofing),
 
+    // Lies of P
+    // Spoofing disabled as no Streamline and OptiPatcher unlocks DLSS anyway
+    QUIRK_ENTRY_UE(lop, GameQuirk::DisableDxgiSpoofing),
+
     // Crimson Desert
     // Spoofing disabled due to "unsupported GPU" error
     QUIRK_ENTRY("crimsondesert.exe", GameQuirk::DisableDxgiSpoofing),
@@ -266,7 +278,7 @@ static const QuirkEntry quirkTable[] = {
     // Medium, NINJA GAIDEN 4 (+ WinGDK), God of War (2018), Europa Universalis V, Need for Speed Unbound, Nioh 2 – The
     // Complete Edition, Control Ultimate Edition, Deathloop, Where Winds Meet, FINAL FANTASY VII REMAKE INTERGRADE (for
     // Luma mod), Assassin’s Creed Shadows, Farming Simulator 2025, Nioh 3, FATAL FRAME II: Crimson Butterfly REMAKE,
-    // OUTRIDERS
+    // OUTRIDERS, Assetto Corsa EVO
     QUIRK_ENTRY("witcher3.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("alanwake2.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("crysis3remastered.exe", GameQuirk::DisableDxgiSpoofing),
@@ -304,6 +316,7 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("nioh3.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("fatalframeii.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY_UE(outriders, GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("assettocorsaevo.exe", GameQuirk::DisableDxgiSpoofing),
 
     // FSR2/3 only, no spoof needed
     //
@@ -324,7 +337,7 @@ static const QuirkEntry quirkTable[] = {
     //
     // Forgive Me Father 2, Revenge of the Savage Planet, F1 22, Metal Eden, Until Dawn, Bloomand Rage, 171, Microsoft
     // Flight Simulator (2020) - MSFS2020, Banishers: Ghosts of New Eden,Rune Factory Guardians of Azuma, Supraworld, F1
-    // Manager 2024, Keeper (+ WinGDK PaganIdol version)
+    // Manager 2024, Keeper (+ WinGDK PaganIdol version), Assetto Corsa Rally
     QUIRK_ENTRY_UE(fmf2, GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
     QUIRK_ENTRY_UE(towers, GameQuirk::DisableFSR2Inputs,
                    GameQuirk::DisableFSR3Inputs), // Revenge of the Savage Planet
@@ -341,6 +354,7 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY_UE(keeper, GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
     QUIRK_ENTRY_UE(paganidol, GameQuirk::DisableFSR2Inputs,
                    GameQuirk::DisableFSR3Inputs), // Keeper WinGDK PaganIdol
+    QUIRK_ENTRY("acr.exe", GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
 
     // XeSS only, no spoof needed
     //
