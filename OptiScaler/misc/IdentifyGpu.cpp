@@ -228,43 +228,15 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
 
-    auto winevulkan = LoadLibraryA("winevulkan.dll");
-
-    auto o_vkCreateInstance = vkCreateInstance;
-    auto o_vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-
-    if (State::Instance().isRunningOnLinux && winevulkan)
-    {
-        o_vkCreateInstance = (PFN_vkCreateInstance) KernelBaseProxy::GetProcAddress_()(winevulkan, "vkCreateInstance");
-        o_vkGetInstanceProcAddr =
-            (PFN_vkGetInstanceProcAddr) KernelBaseProxy::GetProcAddress_()(winevulkan, "vkGetInstanceProcAddr");
-    }
-
     VkInstance instance = VK_NULL_HANDLE;
-    if (o_vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
+    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
     {
         LOG_ERROR("Couldn't create a Vulkan instance");
         return localCachedInfo;
     }
 
-    auto o_vkEnumeratePhysicalDevices = vkEnumeratePhysicalDevices;
-    auto o_vkGetPhysicalDeviceProperties2 = vkGetPhysicalDeviceProperties2;
-    auto o_vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
-    auto o_vkDestroyInstance = vkDestroyInstance;
-
-    if (State::Instance().isRunningOnLinux && winevulkan && instance)
-    {
-        o_vkEnumeratePhysicalDevices =
-            (PFN_vkEnumeratePhysicalDevices) o_vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices");
-        o_vkGetPhysicalDeviceProperties2 =
-            (PFN_vkGetPhysicalDeviceProperties2) o_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
-        o_vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties) o_vkGetInstanceProcAddr(
-            instance, "vkGetPhysicalDeviceMemoryProperties");
-        o_vkDestroyInstance = (PFN_vkDestroyInstance) o_vkGetInstanceProcAddr(instance, "vkDestroyInstance");
-    }
-
     uint32_t deviceCount = 0;
-    o_vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
 
     if (deviceCount == 0)
     {
@@ -276,7 +248,7 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
     // ScopedSkipSpoofing skipSpoofing {};
 
     std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
-    o_vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
+    vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
 
     for (auto physicalDevice : physicalDevices)
     {
@@ -287,10 +259,10 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
         props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
         props2.pNext = &idProps;
 
-        o_vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+        vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
 
         VkPhysicalDeviceMemoryProperties memProps {};
-        o_vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
 
         GpuInformation gpuInfo;
         for (uint32_t i = 0; i < memProps.memoryHeapCount; ++i)
@@ -312,7 +284,7 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
         localCachedInfo.push_back(std::move(gpuInfo));
     }
 
-    o_vkDestroyInstance(instance, nullptr);
+    vkDestroyInstance(instance, nullptr);
     sortGpus(localCachedInfo);
 
     for (auto& gpuInfo : localCachedInfo)
