@@ -993,6 +993,14 @@ static void CheckWorkingMode()
                 FfxApiProxy::InitFfxDx12_FG(ffxDx12FGModule);
             }
 
+            HMODULE ffxDx12DenoiserModule = nullptr;
+            ffxDx12DenoiserModule = GetDllNameWModule(&ffxDx12DenoiserNamesW);
+            if (ffxDx12DenoiserModule != nullptr)
+            {
+                LOG_DEBUG("amd_fidelityfx_denoiser_dx12.dll already in memory");
+                FfxApiProxy::InitFfxDx12_Denoiser(ffxDx12DenoiserModule);
+            }
+
             // FFX Vulkan
             HMODULE ffxVkModule = nullptr;
             ffxVkModule = GetDllNameWModule(&ffxVkNamesW);
