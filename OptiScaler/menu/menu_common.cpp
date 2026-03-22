@@ -2973,6 +2973,10 @@ bool MenuCommon::RenderMenu()
                 {
                     LOG_WARN("Resetting FGInput to NoFG: {}", inputOptions[(uint32_t) state.activeFgInput].label);
                     config->FGInput = FGInput::NoFG;
+
+                    // Changing active can be dangerous but we are talking about an unsupported mode
+                    // which shouldn't even actually have taken affect
+                    state.activeFgInput = FGInput::NoFG;
                 }
 
                 // Unsupported FG output selected
@@ -2981,6 +2985,7 @@ bool MenuCommon::RenderMenu()
                 {
                     LOG_WARN("Resetting FGOutput to NoFG: {}", outputOptions[(uint32_t) state.activeFgOutput].label);
                     config->FGOutput = FGOutput::NoFG;
+                    state.activeFgOutput = FGOutput::NoFG;
                 }
 
                 if (!config->FGOutput.has_value())
