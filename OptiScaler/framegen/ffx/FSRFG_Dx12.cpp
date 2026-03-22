@@ -616,7 +616,7 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
         return FFX_API_RETURN_OK;
     }
 
-    if (State::Instance().gameQuirks & GameQuirk::CyberpunkHudlessFixes)
+    if (State::Instance().gameQuirks & GameQuirk::FSRFGHudlessMismatchFixup)
     {
         auto presentWithHud = (ID3D12Resource*) params->presentColor.resource;
         auto hudlessResource = _resourceCopy[fIndex][FG_ResourceType::HudlessColor];
@@ -644,9 +644,13 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
 
             if (auto hudCopy = _hudCopy[fIndex].get(); hudCopy && hudCopy->IsInit())
             {
-                // FSR FG inputs in Cyberprank are even more broken than other FG inputs so use a more aggressive
-                // threshold
-                float hudDetectionThreshold = State::Instance().activeFgInput == FGInput::FSRFG ? 0.03f : 0.01f;
+                // In Cyberprank - DLSSG has noise issues, FSR FG has noise + vignetting
+                // In Death Stranding 2 - DLSSG has wrong colormapping it seems, FSR FG is fine
+                const bool isCyberpunk = State::Instance().gameQuirks[GameQuirk::CyberpunkHudlessState];
+                float hudDetectionThreshold = 0.03f;
+
+                if (isCyberpunk && State::Instance().activeFgInput != FGInput::FSRFG)
+                    hudDetectionThreshold = 0.01f;
 
                 hudCopy->Dispatch(_device, cmdList, hudlessResource, presentWithHud, hudlessState,
                                   GetD3D12State((FfxApiResourceState) params->presentColor.state),

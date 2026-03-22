@@ -1064,8 +1064,11 @@ static void printQuirks(flag_set<GameQuirk>& quirks)
     auto state = &State::Instance();
     std::vector<std::string> stringQuirks;
 
-    if (quirks & GameQuirk::CyberpunkHudlessFixes)
-        stringQuirks.push_back("Fixing DLSSG's hudless in Cyberpunk");
+    if (quirks & GameQuirk::CyberpunkHudlessState)
+        stringQuirks.push_back("Fixing DLSSG's hudless state in Cyberpunk");
+
+    if (quirks & GameQuirk::FSRFGHudlessMismatchFixup)
+        stringQuirks.push_back("FSR FG hudless mismatch fixup");
 
     if (quirks & GameQuirk::SkipFsr3Method)
         stringQuirks.push_back("Skipping first FSR 3 method");
