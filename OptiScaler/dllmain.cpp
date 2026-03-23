@@ -1001,14 +1001,22 @@ static void CheckWorkingMode()
                 FfxApiProxy::InitFfxDx12_Denoiser(ffxDx12DenoiserModule);
             }
 
-            // FFX Vulkan
-            HMODULE ffxVkModule = nullptr;
-            ffxVkModule = GetDllNameWModule(&ffxVkNamesW);
-            if (ffxVkModule != nullptr)
-            {
-                LOG_DEBUG("amd_fidelityfx_vk.dll already in memory");
-                FfxApiProxy::InitFfxVk(ffxVkModule);
-            }
+    HMODULE ffxDx12RadianceModule = nullptr;
+    ffxDx12RadianceModule = GetDllNameWModule(&ffxDx12RadianceNamesW);
+    if (ffxDx12RadianceModule != nullptr)
+    {
+        LOG_DEBUG("amd_fidelityfx_radiancecache_dx12.dll already in memory");
+        FfxApiProxy::InitFfxDx12_Radiance(ffxDx12RadianceModule);
+    }
+
+    // FFX Vulkan
+    HMODULE ffxVkModule = nullptr;
+    ffxVkModule = GetDllNameWModule(&ffxVkNamesW);
+    if (ffxVkModule != nullptr)
+    {
+        LOG_DEBUG("amd_fidelityfx_vk.dll already in memory");
+        FfxApiProxy::InitFfxVk(ffxVkModule);
+    }
 
             // Hook kernel32 methods
             if (!Config::Instance()->EarlyHooking.value_or_default())
