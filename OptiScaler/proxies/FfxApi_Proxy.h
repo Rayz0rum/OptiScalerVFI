@@ -1150,4 +1150,202 @@ class FfxApiProxy
             return "Unknown";
         }
     }
+
+    static std::string GetTypeName(ffxStructType_t type)
+    {
+        switch ((uint64_t) type)
+        {
+        // General
+        case 1u:
+            return std::format("CONFIGURE_DESC_TYPE_GLOBALDEBUG1 ({:X})", type);
+
+        case 2u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 ({:X})", type);
+
+        case 3u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_BACKEND_VK ({:X})", type);
+
+        case 4u:
+            return std::format("QUERY_DESC_TYPE_GET_VERSIONS ({:X})", type);
+
+        case 5u:
+            return std::format("DESC_TYPE_OVERRIDE_VERSION ({:X})", type);
+
+        case 6u:
+            return std::format("QUERY_DESC_TYPE_GET_PROVIDER_VERSION ({:X})", type);
+
+        // Upscaling
+        case 0x00010000u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_UPSCALE ({:X})", type);
+
+        case 0x00010001u:
+            return std::format("DISPATCH_DESC_TYPE_UPSCALE ({:X})", type);
+
+        case 0x00010002u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GETUPSCALERATIOFROMQUALITYMODE ({:X})", type);
+
+        case 0x00010003u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GETRENDERRESOLUTIONFROMQUALITYMODE ({:X})", type);
+
+        case 0x00010004u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GETJITTERPHASECOUNT ({:X})", type);
+
+        case 0x00010005u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GETJITTEROFFSET ({:X})", type);
+
+        case 0x00010006u:
+            return std::format("DISPATCH_DESC_TYPE_UPSCALE_GENERATEREACTIVEMASK ({:X})", type);
+
+        case 0x00010007u:
+            return std::format("CONFIGURE_DESC_TYPE_UPSCALE_KEYVALUE ({:X})", type);
+
+        case 0x00010008u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GPU_MEMORY_USAGE ({:X})", type);
+
+        case 0x00010009u:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GPU_MEMORY_USAGE_V2 ({:X})", type);
+
+        case 0x0001000au:
+            return std::format("QUERY_DESC_TYPE_UPSCALE_GET_RESOURCE_REQUIREMENTS ({:X})", type);
+
+        // FG
+        case 0x00020001u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION ({:X})", type);
+
+        case 0x00020005u:
+            return std::format("CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT ({:X})", type);
+
+        case 0x00020003u:
+            return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION ({:X})", type);
+
+        case 0x00020002u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION ({:X})", type);
+
+        case 0x00020004u:
+            return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE ({:X})", type);
+
+        case 0x00020006u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE ({:X})", type);
+
+        case 0x00020007u:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE ({:X})", type);
+
+        case 0x00020008u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE ({:X})", type);
+
+        case 0x00020009u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS ({:X})", type);
+
+        case 0x0002000au:
+            return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO ({:X})", type);
+
+        case 0x0002000bu:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2 ({:X})", type);
+
+        case 0x0002000cu:
+            return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 ({:X})", type);
+
+        // DX12 Swapchain
+        case 0x00030001u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12 ({:X})", type);
+
+        case 0x00030005u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12 ({:X})", type);
+
+        case 0x00030006u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12 ({:X})", type);
+
+        case 0x00030002u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12 ({:X})", type);
+
+        case 0x00030003u:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12 ({:X})", type);
+
+        case 0x00030004u:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12 ({:X})", type);
+
+        case 0x00030007u:
+            return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12 ({:X})", type);
+
+        case 0x00030008u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 ({:X})", type);
+
+        case 0x00030009u:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12 ({:X})", type);
+
+        case 0x0003000au:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2 ({:X})", type);
+
+        // Vulkan Swapchain
+        case 0x00040001u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK ({:X})", type);
+
+        case 0x00040002u:
+            return std::format("CONFIGURE_DESC_TYPE_FGSWAPCHAIN_REGISTERUIRESOURCE_VK ({:X})", type);
+
+        case 0x00040003u:
+            return std::format("QUERY_DESC_TYPE_FGSWAPCHAIN_INTERPOLATIONCOMMANDLIST_VK ({:X})", type);
+
+        case 0x00040004u:
+            return std::format("QUERY_DESC_TYPE_FGSWAPCHAIN_INTERPOLATIONTEXTURE_VK ({:X})", type);
+
+        case 0x00040007u:
+            return std::format("DISPATCH_DESC_TYPE_FGSWAPCHAIN_WAIT_FOR_PRESENTS_VK ({:X})", type);
+
+        case 0x00040008u:
+            return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_VK ({:X})", type);
+
+        case 0x00040009u:
+            return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_VK ({:X})", type);
+
+        case 0x00040005u:
+            return std::format("QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK ({:X})", type);
+
+        case 0x00040010u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_MODE_VK ({:X})", type);
+
+        // Denoiser
+        case 0x00050001u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050002u:
+            return std::format("DISPATCH_DESC_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050003u:
+            return std::format("DISPATCH_DESC_INPUT_4_SIGNALS_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050004u:
+            return std::format("DISPATCH_DESC_INPUT_2_SIGNALS_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050005u:
+            return std::format("DISPATCH_DESC_INPUT_1_SIGNAL_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050007u:
+            return std::format("DISPATCH_DESC_INPUT_DOMINANT_LIGHT_TYPE_DENOISER ({:X})", type);
+
+        case 0x00050008u:
+            return std::format("CONFIGURE_DESC_TYPE_DENOISER_SETTINGS ({:X})", type);
+
+        case 0x00050009u:
+            return std::format("QUERY_DESC_TYPE_DENOISER_GPU_MEMORY_USAGE ({:X})", type);
+
+        case 0x0005000au:
+            return std::format("QUERY_DESC_TYPE_DENOISER_GET_VERSION ({:X})", type);
+
+        case 0x0005000bu:
+            return std::format("QUERY_DESC_TYPE_DENOISER_GET_DEFAULT_SETTINGS ({:X})", type);
+
+        // Radiance Cache
+        case 0x00060002u:
+            return std::format("CREATE_CONTEXT_DESC_TYPE_RADIANCECACHE ({:X})", type);
+
+        case 0x00060004u:
+            return std::format("DISPATCH_DESC_TYPE_RADIANCECACHE ({:X})", type);
+
+        case 0x00060005u:
+            return std::format("DEBUG_DISPATCH_DESC_TYPE_RADIANCECACHE ({:X})", type);
+        }
+
+        return std::format("??? ({:X})", type);
+    }
 };

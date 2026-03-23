@@ -58,128 +58,6 @@ static bool ffxGetJitterOffsetLocal(float* outX, float* outY, int32_t index, int
     return true;
 }
 
-static std::string FfxGetGetDescTypeName(ffxStructType_t type)
-{
-    switch ((UINT) type)
-    {
-    case 0x0000001u:
-        return std::format("CONFIGURE_DESC_TYPE_GLOBALDEBUG1 ({:X})", type);
-
-    case 0x0000002u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12 ({:X})", type);
-
-    case 4u:
-        return std::format("QUERY_DESC_TYPE_GET_VERSIONS ({:X})", type);
-
-    case 5u:
-        return std::format("DESC_TYPE_OVERRIDE_VERSION ({:X})", type);
-
-    case 6u:
-        return std::format("QUERY_DESC_TYPE_GET_PROVIDER_VERSION ({:X})", type);
-
-    case 0x00010000u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_UPSCALE ({:X})", type);
-
-    case 0x00010001u:
-        return std::format("DISPATCH_DESC_TYPE_UPSCALE ({:X})", type);
-
-    case 0x00010002u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GETUPSCALERATIOFROMQUALITYMODE ({:X})", type);
-
-    case 0x00010003u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GETRENDERRESOLUTIONFROMQUALITYMODE ({:X})", type);
-
-    case 0x00010004u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GETJITTERPHASECOUNT ({:X})", type);
-
-    case 0x00010005u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GETJITTEROFFSET ({:X})", type);
-
-    case 0x00010006u:
-        return std::format("DISPATCH_DESC_TYPE_UPSCALE_GENERATEREACTIVEMASK ({:X})", type);
-
-    case 0x00010007u:
-        return std::format("CONFIGURE_DESC_TYPE_UPSCALE_KEYVALUE ({:X})", type);
-
-    case 0x00010008u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GPU_MEMORY_USAGE ({:X})", type);
-
-    case 0x00010009u:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GPU_MEMORY_USAGE_V2 ({:X})", type);
-
-    case 0x0001000au:
-        return std::format("QUERY_DESC_TYPE_UPSCALE_GET_RESOURCE_REQUIREMENTS ({:X})", type);
-
-    case 0x00020001u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION ({:X})", type);
-
-    case 0x00020005u:
-        return std::format("CALLBACK_DESC_TYPE_FRAMEGENERATION_PRESENT ({:X})", type);
-
-    case 0x00020003u:
-        return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION ({:X})", type);
-
-    case 0x00020002u:
-        return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION ({:X})", type);
-
-    case 0x00020004u:
-        return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE ({:X})", type);
-
-    case 0x00020006u:
-        return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION_KEYVALUE ({:X})", type);
-
-    case 0x00020007u:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE ({:X})", type);
-
-    case 0x00020008u:
-        return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATION_REGISTERDISTORTIONRESOURCE ({:X})", type);
-
-    case 0x00020009u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION_HUDLESS ({:X})", type);
-
-    case 0x0002000au:
-        return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO ({:X})", type);
-
-    case 0x0002000bu:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATION_GPU_MEMORY_USAGE_V2 ({:X})", type);
-
-    case 0x0002000cu:
-        return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 ({:X})", type);
-
-    case 0x30001u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WRAP_DX12 ({:X})", type);
-
-    case 0x30005u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_NEW_DX12 ({:X})", type);
-
-    case 0x30006u:
-        return std::format("CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12 ({:X})", type);
-
-    case 0x30002u:
-        return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12 ({:X})", type);
-
-    case 0x30003u:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONCOMMANDLIST_DX12 ({:X})", type);
-
-    case 0x30004u:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_INTERPOLATIONTEXTURE_DX12 ({:X})", type);
-
-    case 0x30007u:
-        return std::format("DISPATCH_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_WAIT_FOR_PRESENTS_DX12 ({:X})", type);
-
-    case 0x30008u:
-        return std::format("CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_KEYVALUE_DX12 ({:X})", type);
-
-    case 0x00030009u:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12 ({:X})", type);
-
-    case 0x0003000au:
-        return std::format("QUERY_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_GPU_MEMORY_USAGE_DX12_V2 ({:X})", type);
-    }
-
-    return std::format("??? ({:X})", type);
-}
-
 static bool CreateDLSSContext(ffxContext handle, const ffxDispatchDescUpscale* pExecParams)
 {
     LOG_DEBUG("context: {:X}", (size_t) handle);
@@ -320,7 +198,7 @@ ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescH
     if (desc == nullptr)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
-    LOG_DEBUG("type: {}", FfxGetGetDescTypeName(desc->type));
+    LOG_DEBUG("type: {}", FfxApiProxy::GetTypeName(desc->type));
 
     auto& state = State::Instance();
     auto type = FfxApiProxy::GetType(desc->type);
@@ -509,7 +387,7 @@ ffxReturnCode_t ffxConfigure_Dx12(ffxContext* context, ffxConfigureDescHeader* d
     if (desc == nullptr)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
-    LOG_DEBUG("type: {}", FfxGetGetDescTypeName(desc->type));
+    LOG_DEBUG("type: {}", FfxApiProxy::GetTypeName(desc->type));
 
     auto type = FfxApiProxy::GetType(desc->type);
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
@@ -550,7 +428,7 @@ ffxReturnCode_t ffxQuery_Dx12(ffxContext* context, ffxQueryDescHeader* desc)
     if (desc == nullptr)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
-    LOG_DEBUG("type: {}", FfxGetGetDescTypeName(desc->type));
+    LOG_DEBUG("type: {}", FfxApiProxy::GetTypeName(desc->type));
 
     auto type = FfxApiProxy::GetIndirectType(desc);
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
@@ -690,7 +568,7 @@ ffxReturnCode_t ffxDispatch_Dx12(ffxContext* context, ffxDispatchDescHeader* des
     if (desc == nullptr || context == nullptr)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
-    LOG_DEBUG("context: {:X}, type: {}", (size_t) *context, FfxGetGetDescTypeName(desc->type));
+    LOG_DEBUG("context: {:X}, type: {}", (size_t) *context, FfxApiProxy::GetTypeName(desc->type));
 
     auto type = FfxApiProxy::GetType(desc->type);
     if (type == FFXStructType::SwapchainDX12 || type == FFXStructType::FG)
