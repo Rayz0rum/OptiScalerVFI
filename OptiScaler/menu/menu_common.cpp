@@ -4329,14 +4329,15 @@ bool MenuCommon::RenderMenu()
                         "Uses Reflex when possible\nOn AMD/Intel cards, you can use Fakenvapi to substitute Reflex");
 
                     static std::string currentMethod {};
+                    LowLatencyMode mode {};
                     if (state.reflexLimitsFps)
                     {
                         if (fakenvapi::updateModeAndContext())
                         {
-                            auto mode = fakenvapi::getCurrentMode();
+                            mode = fakenvapi::getCurrentMode();
 
                             if (mode == LowLatencyMode::AntiLag2)
-                                currentMethod = "AntiLag 2";
+                                currentMethod = "FSR Latency Reduction 2.0";
                             else if (mode == LowLatencyMode::LatencyFlex)
                                 currentMethod = "LatencyFlex";
                             else if (mode == LowLatencyMode::XeLL)
@@ -4346,9 +4347,9 @@ bool MenuCommon::RenderMenu()
 
                             if (state.rtssReflexInjection && mode == LowLatencyMode::AntiLag2 &&
                                 config->FGOutput.value_or_default() == FGOutput::FSRFG)
-                                ImGui::TextColored(
-                                    ImVec4(1.f, 0.8f, 0.f, 1.f),
-                                    "Using RTSS Reflex injection with AntiLag 2 and FSR FG might cause issues");
+                                ImGui::TextColored(ImVec4(1.f, 0.8f, 0.f, 1.f),
+                                                   "Using RTSS Reflex injection with FSR Latency Reduction 2.0 and FSR "
+                                                   "FG might cause issues");
                         }
                         else
                         {
@@ -4370,6 +4371,9 @@ bool MenuCommon::RenderMenu()
                         currentMethod.append(" (no XeLL)");
 
                     ImGui::Text("Current method: %s", currentMethod.c_str());
+
+                    if (mode == LowLatencyMode::AntiLag2)
+                        ShowHelpMarker("FSR Latency Reduction 2.0 is the new name for AntiLag 2\nDon't ask me why");
 
                     if (state.reflexShowWarning)
                     {
@@ -4442,8 +4446,8 @@ bool MenuCommon::RenderMenu()
                     {
                         config->FN_ForceLatencyFlex = forceLFX;
                     }
-                    ShowHelpMarker(
-                        "AntiLag 2 / XeLL is used when available, this setting lets you force LatencyFlex instead");
+                    ShowHelpMarker("FSR Latency Reduction 2.0 / XeLL is used when available, this setting lets you "
+                                   "force LatencyFlex instead");
 
                     ImGui::SameLine(0.0f, 16.0f);
 

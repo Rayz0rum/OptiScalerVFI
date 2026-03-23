@@ -20,7 +20,7 @@ bool LowLatency::update_low_latency_tech(IUnknown* pDevice)
             currently_active_tech = new AntiLag2();
             if (currently_active_tech->init_using_ctx(forced_low_latency_context))
             {
-                LOG_INFO("LowLatency algo: AntiLag 2 (via context)");
+                LOG_INFO("LowLatency algo: FSR Latency Reduction 2.0 (via context)");
                 active_tech_mutex.unlock();
                 return true;
             }
@@ -45,7 +45,7 @@ bool LowLatency::update_low_latency_tech(IUnknown* pDevice)
             currently_active_tech = new AntiLag2();
             if (currently_active_tech->init(pDevice))
             {
-                LOG_INFO("LowLatency algo: AntiLag 2");
+                LOG_INFO("LowLatency algo: FSR Latency Reduction 2.0");
                 active_tech_mutex.unlock();
                 return true;
             }

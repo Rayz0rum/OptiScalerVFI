@@ -33,7 +33,7 @@ inline HRESULT AntiLag2::al2_sleep()
 
     // log_event("al2_sleep", "{}", get_timestamp() - pre_sleep);
 
-    LOG_TRACE_FAKENVAPI("AntiLag 2 Call Spot: {}",
+    LOG_TRACE_FAKENVAPI("FSR Latency Reduction 2.0 Call Spot: {}",
                         current_call_spot == CallSpot::SimulationStart ? "SimulationStart" : "SleepCall");
 
     return result;
@@ -70,12 +70,12 @@ bool AntiLag2::init(IUnknown* pDevice)
             AL2Proxy::disableAl2Kill = false;
             if (init_return == S_OK)
             {
-                LOG_INFO("AntiLag 2 DX12 initialized");
+                LOG_INFO("FSR Latency Reduction 2.0 DX12 initialized");
                 return true;
             }
             else
             {
-                LOG_INFO("AntiLag 2 DX12 initialization failed");
+                LOG_INFO("FSR Latency Reduction 2.0 DX12 initialization failed");
             }
         }
         else
@@ -85,18 +85,18 @@ bool AntiLag2::init(IUnknown* pDevice)
             HRESULT init_return = AMD::AntiLag2DX11::Initialize(&dx11_ctx);
             if (init_return == S_OK)
             {
-                LOG_INFO("AntiLag 2 DX11 initialized");
+                LOG_INFO("FSR Latency Reduction 2.0 DX11 initialized");
                 return true;
             }
             else
             {
-                LOG_INFO("AntiLag 2 DX11 initialization failed");
+                LOG_INFO("FSR Latency Reduction 2.0 DX11 initialization failed");
             }
         }
     }
     else
     {
-        LOG_WARN("Initialization of AntiLag 2 was attempted while the context is not null");
+        LOG_WARN("Initialization of FSR Latency Reduction 2.0 was attempted while the context is not null");
     }
 
     return false;
@@ -107,7 +107,7 @@ bool AntiLag2::init_using_ctx(void* context)
 {
     if (!context)
     {
-        LOG_ERROR("AntiLag 2 init_using_ctx called with null context");
+        LOG_ERROR("FSR Latency Reduction 2.0 init_using_ctx called with null context");
         return false;
     }
 
@@ -117,7 +117,7 @@ bool AntiLag2::init_using_ctx(void* context)
     if (dx12_ctx.m_pAntiLagAPI)
     {
         inited_using_context = true;
-        LOG_INFO("AntiLag 2 DX12 initialized using existing context");
+        LOG_INFO("FSR Latency Reduction 2.0 DX12 initialized using existing context");
         return true;
     }
 
@@ -128,7 +128,7 @@ void AntiLag2::deinit()
 {
     if (inited_using_context)
     {
-        LOG_INFO("AntiLag 2 DX12 deinit called while inited using context, skipping deinitialization");
+        LOG_INFO("FSR Latency Reduction 2.0 DX12 deinit called while inited using context, skipping deinitialization");
         inited_using_context = false;
         return;
     }
@@ -144,10 +144,10 @@ void AntiLag2::deinit()
     }
 
     if (dx12_ctx.m_pAntiLagAPI && !AMD::AntiLag2DX12::DeInitialize(&dx12_ctx))
-        LOG_INFO("AntiLag 2 DX12 deinitialized");
+        LOG_INFO("FSR Latency Reduction 2.0 DX12 deinitialized");
 
     if (dx11_ctx.m_pAntiLagAPI && !AMD::AntiLag2DX11::DeInitialize(&dx11_ctx))
-        LOG_INFO("AntiLag 2 DX11 deinitialized");
+        LOG_INFO("FSR Latency Reduction 2.0 DX11 deinitialized");
 }
 
 void* AntiLag2::get_tech_context()
