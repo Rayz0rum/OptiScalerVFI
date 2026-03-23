@@ -76,6 +76,7 @@ class FfxApiProxy
     inline static FfxModule upscaling_dx12;
     inline static FfxModule fg_dx12;
     inline static FfxModule denoiser_dx12;
+    inline static FfxModule radiance_dx12;
 
     inline static FfxModule main_vk;
 
@@ -96,6 +97,7 @@ class FfxApiProxy
     static HMODULE Dx12Module_SR() { return upscaling_dx12.dll; }
     static HMODULE Dx12Module_FG() { return fg_dx12.dll; }
     static HMODULE Dx12Module_Denoiser() { return denoiser_dx12.dll; }
+    static HMODULE Dx12Module_Radiance() { return radiance_dx12.dll; }
 
     static bool IsFGReady()
     {
@@ -122,6 +124,17 @@ class FfxApiProxy
     static bool IsDenoiserReady()
     {
         bool result = (main_dx12.dll && !main_dx12.isLoader) || denoiser_dx12.dll != nullptr;
+
+        if (!result)
+            ImGui::InsertNotification({ ImGuiToastType::Error, 10000,
+                                        "Can't load amd_fidelityfx_dx12\nDid you forget to extract that dll?" });
+
+        return result;
+    }
+
+    static bool IsRadianceReady()
+    {
+        bool result = (main_dx12.dll && !main_dx12.isLoader) || radiance_dx12.dll != nullptr;
 
         if (!result)
             ImGui::InsertNotification({ ImGuiToastType::Error, 10000,
@@ -281,9 +294,11 @@ class FfxApiProxy
         InitFfxDx12_SR();
         InitFfxDx12_FG();
         InitFfxDx12_Denoiser();
+        InitFfxDx12_Radiance();
 
         bool loadResult = main_dx12.CreateContext != nullptr || upscaling_dx12.CreateContext != nullptr ||
-                          fg_dx12.CreateContext != nullptr || denoiser_dx12.CreateContext != nullptr;
+                          fg_dx12.CreateContext != nullptr || denoiser_dx12.CreateContext != nullptr ||
+                          radiance_dx12.CreateContext != nullptr;
 
         LOG_INFO("LoadResult: {}", loadResult);
 
@@ -586,6 +601,104 @@ class FfxApiProxy
         return loadResult;
     }
 
+    static bool InitFfxDx12_Radiance(HMODULE module = nullptr)
+    {
+        // if dll already loaded
+        if (radiance_dx12.dll != nullptr && radiance_dx12.CreateContext != nullptr)
+            return true;
+
+        spdlog::info("");
+
+        if (module != nullptr)
+            radiance_dx12.dll = module;
+
+        if (radiance_dx12.dll == nullptr)
+        {
+            // Try new api first
+            std::vector<std::wstring> dllNames = { L"amd_fidelityfx_radiancecache_dx12.dll" };
+
+            for (size_t i = 0; i < dllNames.size(); i++)
+            {
+                LOG_DEBUG("Trying to load {}", wstring_to_string(dllNames[i]));
+
+                // if (radiance_dx12.dll == nullptr && Config::Instance()->FfxDx12Path.has_value())
+                //{
+                //     std::filesystem::path libPath(Config::Instance()->FfxDx12Path.value().c_str());
+
+                //    if (libPath.has_filename())
+                //        radiance_dx12.dll = NtdllProxy::LoadLibraryExW_Ldr(libPath.c_str(), NULL, 0);
+                //    else
+                //        radiance_dx12.dll = NtdllProxy::LoadLibraryExW_Ldr((libPath / dllNames[i]).c_str(), NULL, 0);
+
+                //    if (radiance_dx12.dll != nullptr)
+                //    {
+                //        LOG_INFO("{} loaded from {}", wstring_to_string(dllNames[i]),
+                //                 wstring_to_string(Config::Instance()->FfxDx12Path.value()));
+                //        break;
+                //    }
+                //}
+
+                if (radiance_dx12.dll == nullptr)
+                {
+                    radiance_dx12.dll = NtdllProxy::LoadLibraryExW_Ldr(dllNames[i].c_str(), NULL, 0);
+
+                    if (radiance_dx12.dll != nullptr)
+                    {
+                        LOG_INFO("{} loaded from exe folder", wstring_to_string(dllNames[i]));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (radiance_dx12.dll != nullptr && radiance_dx12.Configure == nullptr)
+        {
+            radiance_dx12.Configure =
+                (PfnFfxConfigure) KernelBaseProxy::GetProcAddress_()(radiance_dx12.dll, "ffxConfigure");
+            radiance_dx12.CreateContext =
+                (PfnFfxCreateContext) KernelBaseProxy::GetProcAddress_()(radiance_dx12.dll, "ffxCreateContext");
+            radiance_dx12.DestroyContext =
+                (PfnFfxDestroyContext) KernelBaseProxy::GetProcAddress_()(radiance_dx12.dll, "ffxDestroyContext");
+            radiance_dx12.Dispatch =
+                (PfnFfxDispatch) KernelBaseProxy::GetProcAddress_()(radiance_dx12.dll, "ffxDispatch");
+            radiance_dx12.Query = (PfnFfxQuery) KernelBaseProxy::GetProcAddress_()(radiance_dx12.dll, "ffxQuery");
+
+            if (Config::Instance()->EnableFfxInputs.value_or_default() && radiance_dx12.CreateContext != nullptr)
+            {
+                DetourTransactionBegin();
+                DetourUpdateThread(GetCurrentThread());
+
+                if (radiance_dx12.Configure != nullptr)
+                    DetourAttach(&(PVOID&) radiance_dx12.Configure, ffxConfigure_Dx12);
+
+                if (radiance_dx12.CreateContext != nullptr)
+                    DetourAttach(&(PVOID&) radiance_dx12.CreateContext, ffxCreateContext_Dx12);
+
+                if (radiance_dx12.DestroyContext != nullptr)
+                    DetourAttach(&(PVOID&) radiance_dx12.DestroyContext, ffxDestroyContext_Dx12);
+
+                if (radiance_dx12.Dispatch != nullptr)
+                    DetourAttach(&(PVOID&) radiance_dx12.Dispatch, ffxDispatch_Dx12);
+
+                if (radiance_dx12.Query != nullptr)
+                    DetourAttach(&(PVOID&) radiance_dx12.Query, ffxQuery_Dx12);
+
+                State::Instance().fsrHooks = true;
+
+                DetourTransactionCommit();
+            }
+        }
+
+        bool loadResult = radiance_dx12.CreateContext != nullptr;
+
+        LOG_INFO("LoadResult: {}", loadResult);
+
+        if (!loadResult)
+            radiance_dx12.dll = nullptr;
+
+        return loadResult;
+    }
+
     static feature_version VersionDx12()
     {
         if (main_dx12.version.major == 0 && main_dx12.Query != nullptr /* && device != nullptr*/)
@@ -759,6 +872,11 @@ class FfxApiProxy
             LOG_DEBUG("Creating with denoiser_dx12");
             return denoiser_dx12.CreateContext(context, desc, memCb);
         }
+        else if (type == FFXStructType::RadianceCache && radiance_dx12.dll != nullptr)
+        {
+            LOG_DEBUG("Creating with radiance_dx12");
+            return radiance_dx12.CreateContext(context, desc, memCb);
+        }
 
         const auto skipFG = isFg && fg_dx12.skipQueryCalls;
         const auto skipUpscaling = type == FFXStructType::Upscaling && upscaling_dx12.skipQueryCalls;
@@ -828,6 +946,12 @@ class FfxApiProxy
                 result = denoiser_dx12.DestroyContext(context, memCb);
             break;
 
+        case FFXStructType::RadianceCache:
+            LOG_DEBUG("Destroying with radiance_dx12");
+            if (radiance_dx12.dll != nullptr)
+                result = radiance_dx12.DestroyContext(context, memCb);
+            break;
+
         default:
             break;
         }
@@ -835,6 +959,20 @@ class FfxApiProxy
         if (result == FFX_API_RETURN_OK)
         {
             LOG_DEBUG("Destroyed with mapped module");
+            return result;
+        }
+
+        if (main_dx12.dll != nullptr && !_skipDestroyCalls)
+        {
+            LOG_DEBUG("Destroying with main_dx12");
+            _skipDestroyCalls = true;
+            result = main_dx12.DestroyContext(context, memCb);
+            _skipDestroyCalls = false;
+        }
+
+        if (result == FFX_API_RETURN_OK)
+        {
+            LOG_DEBUG("Destroyed with main_dx12");
             return result;
         }
 
@@ -862,20 +1000,6 @@ class FfxApiProxy
             return result;
         }
 
-        if (main_dx12.dll != nullptr && !_skipDestroyCalls)
-        {
-            LOG_DEBUG("Destroying with main_dx12");
-            _skipDestroyCalls = true;
-            result = main_dx12.DestroyContext(context, memCb);
-            _skipDestroyCalls = false;
-        }
-
-        if (result == FFX_API_RETURN_OK)
-        {
-            LOG_DEBUG("Destroyed with main_dx12");
-            return result;
-        }
-
         LOG_ERROR("Failed to destroy context in any module");
         return FFX_API_RETURN_NO_PROVIDER;
     }
@@ -895,6 +1019,8 @@ class FfxApiProxy
             return upscaling_dx12.Configure(context, desc);
         else if (type == FFXStructType::Denoiser && denoiser_dx12.dll != nullptr)
             return denoiser_dx12.Configure(context, desc);
+        else if (type == FFXStructType::RadianceCache && radiance_dx12.dll != nullptr)
+            return radiance_dx12.Configure(context, desc);
 
         const auto skipFG = isFg && fg_dx12.skipQueryCalls;
         const auto skipUpscaling = type == FFXStructType::Upscaling && upscaling_dx12.skipQueryCalls;
@@ -930,6 +1056,8 @@ class FfxApiProxy
             return upscaling_dx12.Query(context, desc);
         else if (type == FFXStructType::Denoiser && denoiser_dx12.dll != nullptr)
             return denoiser_dx12.Query(context, desc);
+        else if (type == FFXStructType::RadianceCache && radiance_dx12.dll != nullptr)
+            return radiance_dx12.Query(context, desc);
 
         const auto skipFG = isFg && fg_dx12.skipQueryCalls;
         const auto skipUpscaling = type == FFXStructType::Upscaling && upscaling_dx12.skipQueryCalls;
@@ -965,6 +1093,8 @@ class FfxApiProxy
             return upscaling_dx12.Dispatch(context, desc);
         else if (type == FFXStructType::Denoiser && denoiser_dx12.dll != nullptr)
             return denoiser_dx12.Dispatch(context, desc);
+        else if (type == FFXStructType::RadianceCache && radiance_dx12.dll != nullptr)
+            return radiance_dx12.Dispatch(context, desc);
 
         const auto skipFG = isFg && fg_dx12.skipQueryCalls;
         const auto skipUpscaling = type == FFXStructType::Upscaling && upscaling_dx12.skipQueryCalls;
