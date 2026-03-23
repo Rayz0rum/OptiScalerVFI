@@ -142,9 +142,15 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 {
     LOG_FUNC();
 
+    thread_local bool alreadyCalledInThread = false;
+
+    if (alreadyCalledInThread)
+        o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
+
     VkDeviceCreateInfo localCreteInfo {};
     memcpy(&localCreteInfo, pCreateInfo, sizeof(VkDeviceCreateInfo));
 
+    alreadyCalledInThread = true;
     VulkanSpoofing::hkvkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
 
     auto result = o_vkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
@@ -175,7 +181,7 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 
         if (idProps.deviceLUIDValid == VK_TRUE)
         {
-            auto primaryGpu = IdentifyGpu::getPrimaryGpuVulkan();
+            auto primaryGpu = IdentifyGpu::getPrimaryGpu();
             auto luid = (PLUID) idProps.deviceLUID;
             if (!IsEqualLUID(*luid, primaryGpu.luid))
                 LOG_WARN("VkDevice created with non-primary GPU");

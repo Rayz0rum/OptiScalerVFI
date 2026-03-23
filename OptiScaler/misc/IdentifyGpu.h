@@ -41,7 +41,7 @@ IDXGIDXVKAdapter : public IDXGIAdapter4
 
 struct GpuInformation
 {
-    LUID luid {}; // Unique id to be able to reference the exact GPU, VkPhysicalDeviceIDProperties
+    LUID luid {}; // Unique id to be able to reference the exact GPU
     std::string name {};
     VendorId::Value vendorId = VendorId::Invalid;
     uint32_t deviceId = 0x0;
@@ -60,24 +60,6 @@ struct GpuInformation
     bool noDisplayConnected = false;
 };
 
-// - Check if FSR 4 is supported by using amdxc64, watch out for linux memes on proton experimental that don't check
-// vulkan caps
-// - Check Nvidia Arch, watch out for fakenvapi
-// - Check vram amount
-// - Check if dxgi uses dxvk, some dxvk specific call?
-// - Check if vkd3d-proton is being used? Could be helpful to display in menu
-// - Check vulkan driver? radv vs amdvlk etc
-// - Look at removing state.DeviceAdapterNames
-// - Look into IFeature_Dx11wDx12::getHardwareAdapter
-//
-// - Check hags support? watch out for linux
-// - Opti in many spots assumes a single GPU and that all handles are coming from that gpu,
-// might need to always check if LUID of the held device matches the one provided by this class
-// before trying to use any info from here. Could also create a method to query GpuInformation based on LUID
-// - Consider adding resetCache in case primary GPU has changed somehow + some way to tell IdentifyGpu
-// which GPU is the primary one. Seems mostly useful in cases where the game would manually chose a different GPU.
-// Would require removing "static" from calls to getPrimaryGpu().
-
 inline constexpr bool IsEqualLUID(LUID luid1, LUID luid2)
 {
     return luid1.HighPart == luid2.HighPart && luid1.LowPart == luid2.LowPart;
@@ -86,7 +68,6 @@ inline constexpr bool IsEqualLUID(LUID luid1, LUID luid2)
 class IdentifyGpu
 {
     static std::vector<GpuInformation> checkGpuInfo();
-    static std::vector<GpuInformation> checkGpuInfoVulkan();
     static void queryNvapi(GpuInformation& gpuInfo);
 
   public:
@@ -96,6 +77,4 @@ class IdentifyGpu
     // Sorted by priority, the first one should be treated as the primary one
     static std::vector<GpuInformation> getAllGpus();
     static GpuInformation getPrimaryGpu();
-    static std::vector<GpuInformation> getAllGpusVulkan();
-    static GpuInformation getPrimaryGpuVulkan();
 };

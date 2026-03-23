@@ -113,12 +113,19 @@ static std::vector<std::string> splashText = { "Cope smarter, not harder",
                                                "Getting unshackled from green chains in progress...",
                                                "Who's Nukem anyway?",
                                                "Compiling shaders... ETA: 05h:49m",
-                                               "Did you really just pay 70€ for this game?!",
+                                               "Did you really just pay 70 EUR for this game?!",
                                                "Guess who forgot about a nullptr check again",
                                                "AI can't outslop this",
                                                "Guess we're pre-alpha build demos now",
                                                "New app on the block - TH",
                                                "One more stutter and I might lose it",
+                                               "Mostly stable, unlike the driver",
+                                               "Vul... what? ~AMD",
+                                               "My 8 points are floating",
+                                               "No floating here - I'm strictly between -128 and 127",
+                                               "Fake it til you bake it",
+                                               "Worst case just turn it off and on",
+                                               "*On a generative damage control mode at geometry level*",
                                                "<Your funny text goes here>" };
 
 static std::string updateNoticeTag;
@@ -2208,8 +2215,6 @@ bool MenuCommon::RenderMenu()
 
                     ImGui::PushItemWidth(180.0f * menuResScale);
 
-                    auto primaryGpuVulkan = IdentifyGpu::getPrimaryGpuVulkan();
-
                     switch (state.api)
                     {
                     case DX11:
@@ -2249,7 +2254,7 @@ bool MenuCommon::RenderMenu()
                         break;
 
                     default:
-                        ImGui::Text(primaryGpuVulkan.name.c_str());
+                        ImGui::Text(primaryGpu.name.c_str());
 
                         ImGui::Text("Vulkan %s| %s %d.%d.%d", primaryGpu.usesDxvk ? "(DXVK) " : "",
                                     currentFeature->Name().c_str(), currentFeature->Version().major,

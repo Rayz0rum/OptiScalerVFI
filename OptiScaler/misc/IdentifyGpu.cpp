@@ -44,7 +44,13 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfo()
     DxgiProxy::Init();
 
     ComPtr<IDXGIFactory6> factory = nullptr;
-    HRESULT result = DxgiProxy::CreateDxgiFactory_()(__uuidof(factory), (IDXGIFactory**) factory.GetAddressOf());
+    HRESULT result = S_FALSE;
+
+    {
+        // For DXVK while checking from Vulkan
+        ScopedSkipSpoofing skipSpoofing;
+        result = DxgiProxy::CreateDxgiFactory_()(__uuidof(factory), (IDXGIFactory**) factory.GetAddressOf());
+    }
 
     if (result != S_OK || factory == nullptr)
     {
@@ -209,93 +215,6 @@ std::vector<GpuInformation> IdentifyGpu::checkGpuInfo()
     return localCachedInfo;
 }
 
-// !!! Doesn't fill out FSR 4 capability and dxvk/vkd3d-proton usages !!!
-// We are using Vulkan inside DLL_PROCESS_ATTACH which unlike dxgi technically works™
-// Not ideal + requires a GPU that supports Vulkan but every GPU we care about should
-std::vector<GpuInformation> IdentifyGpu::checkGpuInfoVulkan()
-{
-    auto localCachedInfo = std::vector<GpuInformation> {};
-
-    VkApplicationInfo appInfo {};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "AdapterQuery";
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "None";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
-
-    VkInstanceCreateInfo createInfo {};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
-
-    VkInstance instance = VK_NULL_HANDLE;
-    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS)
-    {
-        LOG_ERROR("Couldn't create a Vulkan instance");
-        return localCachedInfo;
-    }
-
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
-
-    if (deviceCount == 0)
-    {
-        LOG_ERROR("No Vulkan devices");
-        vkDestroyInstance(instance, nullptr);
-        return localCachedInfo;
-    }
-
-    // ScopedSkipSpoofing skipSpoofing {};
-
-    std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
-    vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
-
-    for (auto physicalDevice : physicalDevices)
-    {
-        VkPhysicalDeviceIDProperties idProps {};
-        idProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
-
-        VkPhysicalDeviceProperties2 props2 {};
-        props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        props2.pNext = &idProps;
-
-        vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
-
-        VkPhysicalDeviceMemoryProperties memProps {};
-        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
-
-        GpuInformation gpuInfo;
-        for (uint32_t i = 0; i < memProps.memoryHeapCount; ++i)
-        {
-            if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
-                gpuInfo.dedicatedVramInBytes += memProps.memoryHeaps[i].size;
-        }
-
-        if (idProps.deviceLUIDValid == VK_TRUE)
-            memcpy(&gpuInfo.luid, idProps.deviceLUID, VK_LUID_SIZE);
-
-        gpuInfo.vendorId = (VendorId::Value) props2.properties.vendorID;
-        gpuInfo.deviceId = props2.properties.deviceID;
-        gpuInfo.subsystemId = 0x0; // Not provided by Vulkan
-        gpuInfo.revisionId = 0x0;
-        gpuInfo.name = std::string(props2.properties.deviceName);
-        gpuInfo.softwareAdapter = props2.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
-
-        localCachedInfo.push_back(std::move(gpuInfo));
-    }
-
-    vkDestroyInstance(instance, nullptr);
-    sortGpus(localCachedInfo);
-
-    for (auto& gpuInfo : localCachedInfo)
-    {
-        if (gpuInfo.vendorId == VendorId::Nvidia)
-            queryNvapi(gpuInfo);
-    }
-
-    return localCachedInfo;
-}
-
 void IdentifyGpu::queryNvapi(GpuInformation& gpuInfo)
 {
     auto nvapiModule = NtdllProxy::LoadLibraryExW_Ldr(L"nvapi64.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -431,28 +350,5 @@ std::vector<GpuInformation> IdentifyGpu::getAllGpus()
 GpuInformation IdentifyGpu::getPrimaryGpu()
 {
     auto allGpus = getAllGpus();
-    return allGpus.size() > 0 ? allGpus[0] : GpuInformation {};
-}
-
-// !!! Use the Vulkan variants only inside DLL_PROCESS_ATTACH as they provide incomplete data !!!
-std::vector<GpuInformation> IdentifyGpu::getAllGpusVulkan()
-{
-    // Prevent getAllGpusVulkan calling itself
-    thread_local bool skip = false;
-    if (skip)
-        return std::vector<GpuInformation> {};
-
-    // Static inits are thread safe
-    skip = true;
-    static std::vector<GpuInformation> cache = []() { return checkGpuInfoVulkan(); }();
-    skip = false;
-
-    return cache;
-}
-
-// !!! Use the Vulkan variants only inside DLL_PROCESS_ATTACH as they provide incomplete data !!!
-GpuInformation IdentifyGpu::getPrimaryGpuVulkan()
-{
-    auto allGpus = getAllGpusVulkan();
     return allGpus.size() > 0 ? allGpus[0] : GpuInformation {};
 }

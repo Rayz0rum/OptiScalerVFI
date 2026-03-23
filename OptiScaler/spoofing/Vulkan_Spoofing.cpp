@@ -229,7 +229,6 @@ VkResult VulkanSpoofing::hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, c
     if (pCreateInfo == nullptr)
         return VK_ERROR_INITIALIZATION_FAILED;
 
-    thread_local bool skipExtensions = false;
     if (pCreateInfo->pApplicationInfo != nullptr && pCreateInfo->pApplicationInfo->pApplicationName != nullptr)
     {
         LOG_DEBUG("ApplicationName: {}", pCreateInfo->pApplicationInfo->pApplicationName);
@@ -238,61 +237,25 @@ VkResult VulkanSpoofing::hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, c
     static std::vector<const char*> newExtensionList;
     newExtensionList.clear();
 
-    if (!skipExtensions)
+    LOG_DEBUG("Extensions ({}):", pCreateInfo->enabledExtensionCount);
+    for (size_t i = 0; i < pCreateInfo->enabledExtensionCount; i++)
     {
-        LOG_DEBUG("Extensions ({}):", pCreateInfo->enabledExtensionCount);
-        for (size_t i = 0; i < pCreateInfo->enabledExtensionCount; i++)
-        {
-            LOG_DEBUG("  {}", pCreateInfo->ppEnabledExtensionNames[i]);
-            newExtensionList.push_back(pCreateInfo->ppEnabledExtensionNames[i]);
-        }
+        LOG_DEBUG("  {}", pCreateInfo->ppEnabledExtensionNames[i]);
+        newExtensionList.push_back(pCreateInfo->ppEnabledExtensionNames[i]);
+    }
 
-        // To prevent a loop
-        // Applies to hooked:
-        // vkCreateInstance
-        // vkGetInstanceProcAddr
-        // vkEnumeratePhysicalDevices
-        // vkGetPhysicalDeviceProperties2
-        // vkGetPhysicalDeviceMemoryProperties
-        // vkDestroyInstance
-        skipExtensions = true;
-        static auto primaryGpu = IdentifyGpu::getPrimaryGpuVulkan();
-        skipExtensions = false;
+    static auto primaryGpu = IdentifyGpu::getPrimaryGpu();
 
-        if (primaryGpu.dlssCapable && Config::Instance()->DLSSEnabled.value_or_default())
-        {
-            LOG_INFO("Adding NVNGX Vulkan extensions");
-            if (vkInstanceExtensions.size() == 0 ||
-                vkInstanceExtensions.contains(std::string(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)))
-            {
-                LOG_DEBUG("  Adding {}", VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-                newExtensionList.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-            }
-
-            if (vkInstanceExtensions.size() == 0 ||
-                vkInstanceExtensions.contains(std::string(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME)))
-            {
-                LOG_DEBUG("  Adding {}", VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-                newExtensionList.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-            }
-
-            if (vkInstanceExtensions.size() == 0 ||
-                vkInstanceExtensions.contains(std::string(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME)))
-            {
-                LOG_DEBUG("  Adding {}", VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-                newExtensionList.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-            }
-        }
-
-        LOG_INFO("Adding FFX Vulkan extensions");
+    if (primaryGpu.dlssCapable && Config::Instance()->DLSSEnabled.value_or_default())
+    {
+        LOG_INFO("Adding NVNGX Vulkan extensions");
         if (vkInstanceExtensions.size() == 0 ||
-            vkInstanceExtensions.contains(std::string(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)))
+            vkInstanceExtensions.contains(std::string(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)))
         {
-            LOG_DEBUG("  Adding {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            newExtensionList.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            LOG_DEBUG("  Adding {}", VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+            newExtensionList.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
         }
 
-        LOG_INFO("Adding Vulkan w/Dx12 extensions");
         if (vkInstanceExtensions.size() == 0 ||
             vkInstanceExtensions.contains(std::string(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME)))
         {
@@ -306,11 +269,34 @@ VkResult VulkanSpoofing::hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, c
             LOG_DEBUG("  Adding {}", VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
             newExtensionList.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
         }
-
-        LOG_DEBUG("Layer count: {}", pCreateInfo->enabledLayerCount);
-        for (size_t i = 0; i < pCreateInfo->enabledLayerCount; i++)
-            LOG_DEBUG("  {}", pCreateInfo->ppEnabledLayerNames[i]);
     }
+
+    LOG_INFO("Adding FFX Vulkan extensions");
+    if (vkInstanceExtensions.size() == 0 ||
+        vkInstanceExtensions.contains(std::string(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)))
+    {
+        LOG_DEBUG("  Adding {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        newExtensionList.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+
+    LOG_INFO("Adding Vulkan w/Dx12 extensions");
+    if (vkInstanceExtensions.size() == 0 ||
+        vkInstanceExtensions.contains(std::string(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME)))
+    {
+        LOG_DEBUG("  Adding {}", VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+        newExtensionList.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+    }
+
+    if (vkInstanceExtensions.size() == 0 ||
+        vkInstanceExtensions.contains(std::string(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME)))
+    {
+        LOG_DEBUG("  Adding {}", VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+        newExtensionList.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+    }
+
+    LOG_DEBUG("Layer count: {}", pCreateInfo->enabledLayerCount);
+    for (size_t i = 0; i < pCreateInfo->enabledLayerCount; i++)
+        LOG_DEBUG("  {}", pCreateInfo->ppEnabledLayerNames[i]);
 
 #ifdef VULKAN_DEBUG_LAYER
     debugCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -360,7 +346,8 @@ VkResult VulkanSpoofing::hkvkCreateDevice(VkPhysicalDevice physicalDevice, VkDev
     static std::vector<const char*> newExtensionList;
     newExtensionList.clear();
 
-    static auto primaryGpu = IdentifyGpu::getPrimaryGpuVulkan();
+    static auto primaryGpu = IdentifyGpu::getPrimaryGpu();
+
     LOG_DEBUG("Checking extensions and removing Streamline ones");
     for (size_t i = 0; i < pCreateInfo->enabledExtensionCount; i++)
     {
