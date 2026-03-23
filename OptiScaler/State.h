@@ -33,6 +33,8 @@ enum class FGInput : uint32_t
     XeFG,
     Upscaler, // OptiFG
     FSRFG30,
+
+    ForceXeLL, // Do not expose this option
 };
 
 enum class FGOutput : uint32_t

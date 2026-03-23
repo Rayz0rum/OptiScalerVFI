@@ -2973,10 +2973,11 @@ bool MenuCommon::RenderMenu()
                 outputOptions[xefgOutputIndex].set_disabled(state.swapchainApi != API::DX12, "Unsupported API");
 
                 // Unsupported FG input selected
-                if (config->FGInput != FGInput::NoFG && inputOptions[(uint32_t) state.activeFgInput].disabled &&
-                    state.activeFgInput == config->FGInput)
+                const auto currentInputIndex = (uint32_t) state.activeFgInput;
+                if (config->FGInput != FGInput::NoFG && inputOptions.size() > currentInputIndex &&
+                    inputOptions[currentInputIndex].disabled && state.activeFgInput == config->FGInput)
                 {
-                    LOG_WARN("Resetting FGInput to NoFG: {}", inputOptions[(uint32_t) state.activeFgInput].label);
+                    LOG_WARN("Resetting FGInput to NoFG: {}", inputOptions[currentInputIndex].label);
                     config->FGInput = FGInput::NoFG;
 
                     // Changing active can be dangerous but we are talking about an unsupported mode
@@ -2985,10 +2986,11 @@ bool MenuCommon::RenderMenu()
                 }
 
                 // Unsupported FG output selected
-                if (config->FGOutput != FGOutput::NoFG && outputOptions[(uint32_t) state.activeFgOutput].disabled &&
-                    state.activeFgOutput == config->FGOutput)
+                const auto currentOutputIndex = (uint32_t) state.activeFgOutput;
+                if (config->FGOutput != FGOutput::NoFG && outputOptions.size() > currentOutputIndex &&
+                    outputOptions[currentOutputIndex].disabled && state.activeFgOutput == config->FGOutput)
                 {
-                    LOG_WARN("Resetting FGOutput to NoFG: {}", outputOptions[(uint32_t) state.activeFgOutput].label);
+                    LOG_WARN("Resetting FGOutput to NoFG: {}", outputOptions[currentOutputIndex].label);
                     config->FGOutput = FGOutput::NoFG;
                     state.activeFgOutput = FGOutput::NoFG;
                 }
@@ -2996,6 +2998,7 @@ bool MenuCommon::RenderMenu()
                 if (!config->FGOutput.has_value())
                     config->FGOutput = config->FGOutput.value_or_default(); // need to have a value before combo
 
+                if (state.activeFgInput != FGInput::ForceXeLL)
                 {
                     ImGui::SeparatorText("Frame Generation");
 
@@ -3513,7 +3516,7 @@ bool MenuCommon::RenderMenu()
 
                 // XeFG controls
                 if (state.activeFgOutput == FGOutput::XeFG && state.activeFgInput != FGInput::NoFG &&
-                    state.currentFGSwapchain != nullptr)
+                    state.activeFgInput != FGInput::ForceXeLL && state.currentFGSwapchain != nullptr)
                 {
                     if (XeFGProxy::InitXeFG() && currentFeature != nullptr && !currentFeature->IsFrozen())
                     {
@@ -4441,6 +4444,8 @@ bool MenuCommon::RenderMenu()
 
                     ImGui::SeparatorText("fakenvapi");
 
+                    ImGui::BeginDisabled(state.activeFgInput == FGInput::XeFG ||
+                                         state.activeFgInput == FGInput::ForceXeLL);
                     if (bool forceLFX = config->FN_ForceLatencyFlex.value_or_default();
                         ImGui::Checkbox("Force LatencyFlex", &forceLFX))
                     {
@@ -4448,6 +4453,20 @@ bool MenuCommon::RenderMenu()
                     }
                     ShowHelpMarker("FSR Latency Reduction 2.0 / XeLL is used when available, this setting lets you "
                                    "force LatencyFlex instead");
+                    ImGui::EndDisabled();
+
+                    bool forceXell = config->ForceXeLL.value_or_default();
+                    static bool activeForceXeLL = forceXell;
+
+                    if (fakenvapi::isUsingAsMainNvapi())
+                    {
+                        if (ImGui::Checkbox("Force XeLL", &forceXell))
+                        {
+                            config->ForceXeLL = forceXell;
+                        }
+                        ShowHelpMarker("Allows XeLL to work without FG on non-Intel cards.\n\nDisables FG "
+                                       "options\n\nRequires a restart");
+                    }
 
                     ImGui::SameLine(0.0f, 16.0f);
 
@@ -4461,6 +4480,13 @@ bool MenuCommon::RenderMenu()
                     ShowHelpMarker("If you hate having low latency");
 
                     ImGui::EndDisabled();
+
+                    if (activeForceXeLL != forceXell)
+                    {
+                        ImGui::Spacing();
+                        ImGui::TextColored(ImVec4(1.f, 0.f, 0.0f, 1.f), "Save INI and restart to apply the changes");
+                        ImGui::Spacing();
+                    }
 
                     // clang-format off
                     static const std::vector<MenuOption<LFXMode>> lfx_modes = {

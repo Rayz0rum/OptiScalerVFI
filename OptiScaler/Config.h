@@ -525,6 +525,7 @@ class Config
     // fakenvapi
     CustomOptional<bool> UseFakenvapi { true };
     CustomOptional<bool> XeFGWithoutXeLL { false };
+    CustomOptional<bool> ForceXeLL { false };
     CustomOptional<bool> FN_ForceLatencyFlex { false };
     CustomOptional<LFXMode> FN_LatencyFlexMode { LFXMode::Conservative };
     CustomOptional<ForceReflex> FN_ForceReflex { ForceReflex::InGame };

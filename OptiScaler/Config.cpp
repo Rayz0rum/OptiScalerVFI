@@ -103,6 +103,12 @@ bool Config::Reload(std::filesystem::path iniPath)
                     FGOutput.set_from_config(FGOutput::DLSSG);
             }
 
+            if (auto forceXell = readBool("fakenvapi", "ForceXeLL"); forceXell.has_value() && forceXell.value())
+            {
+                FGInput.set_volatile_value(FGInput::ForceXeLL);
+                FGOutput.set_volatile_value(FGOutput::XeFG);
+            }
+
             auto ftInput = readInt("FrameGen", "FTSource");
             if (ftInput.has_value() && ftInput.value() >= 0 &&
                 ftInput.value() <= (FGOutput.value_or_default() == FGOutput::XeFG ? 2 : 1))
@@ -620,6 +626,7 @@ bool Config::Reload(std::filesystem::path iniPath)
         {
             UseFakenvapi.set_from_config(readBool("fakenvapi", "UseFakenvapi"));
             XeFGWithoutXeLL.set_from_config(readBool("fakenvapi", "XeFGWithoutXeLL"));
+            ForceXeLL.set_from_config(readBool("fakenvapi", "ForceXeLL"));
             FN_ForceLatencyFlex.set_from_config(readBool("fakenvapi", "ForceLatencyFlex"));
 
             if (auto v = readEnum<LFXMode>("fakenvapi", "LatencyFlexMode"))
@@ -1340,6 +1347,7 @@ bool Config::SaveIni()
         ini.SetValue("fakenvapi", "UseFakenvapi", GetBoolValue(Instance()->UseFakenvapi.value_for_config()).c_str());
         ini.SetValue("fakenvapi", "XeFGWithoutXeLL",
                      GetBoolValue(Instance()->XeFGWithoutXeLL.value_for_config()).c_str());
+        ini.SetValue("fakenvapi", "ForceXeLL", GetBoolValue(Instance()->ForceXeLL.value_for_config()).c_str());
         ini.SetValue("fakenvapi", "ForceLatencyFlex",
                      GetBoolValue(Instance()->FN_ForceLatencyFlex.value_for_config()).c_str());
         ini.SetValue("fakenvapi", "LatencyFlexMode",

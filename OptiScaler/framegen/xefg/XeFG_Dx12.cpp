@@ -403,6 +403,12 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
         return false;
     }
 
+    // When forcing XeLL, always tell XeFG that FG is active, even tho we don't send anything
+    if (State::Instance().activeFgInput == FGInput::ForceXeLL)
+    {
+        XeFGProxy::SetEnabled()(_swapChainContext, true);
+    }
+
     _gameCommandQueue = realQueue;
     _swapChain = *swapChain;
     _hwnd = hwnd;
@@ -564,6 +570,12 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
     {
         LOG_ERROR("D3D12GetSwapChainPtr error: {} ({})", magic_enum::enum_name(result), (UINT) result);
         return false;
+    }
+
+    // When forcing XeLL, always tell XeFG that FG is active, even tho we don't send anything
+    if (State::Instance().activeFgInput == FGInput::ForceXeLL)
+    {
+        XeFGProxy::SetEnabled()(_swapChainContext, true);
     }
 
     _gameCommandQueue = realQueue;
