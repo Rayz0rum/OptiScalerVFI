@@ -114,7 +114,7 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D_SetLatencyMarker(IUnknown* pDev,
 
     // Some games just stop sending any async markers when DLSSG is disabled, so a reset is needed
     if (_lastAsyncMarkerFrameId + 10 < pSetLatencyMarkerParams->frameID)
-        _dlssgDetected = false;
+        _FgNumFramesToGenerate = 0;
 
     State::Instance().rtssReflexInjection = pSetLatencyMarkerParams->frameID >> 32;
 
@@ -297,38 +297,73 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D12_SetAsyncFrameMarker(ID3D12CommandQueue* 
 
     if (pSetAsyncFrameMarkerParams->markerType == OUT_OF_BAND_PRESENT_START)
     {
-        constexpr size_t history_size = 12;
+        constexpr size_t history_size = 20;
         static size_t counter = 0;
         static NvU64 previous_frame_ids[history_size] = {};
 
         previous_frame_ids[counter % history_size] = pSetAsyncFrameMarkerParams->frameID;
         counter++;
 
-        size_t repeat_count = 0;
+        size_t valid_count = (counter < history_size) ? counter : history_size;
 
-        for (size_t i = 1; i < history_size; i++)
+        size_t max_run_length = 1;
+        size_t current_run = 1;
+
+        for (size_t i = 1; i < valid_count; i++)
         {
-            // won't catch repeat frame ids across array wrap around
             if (previous_frame_ids[i] == previous_frame_ids[i - 1])
             {
-                repeat_count++;
+                current_run++;
+            }
+            else
+            {
+                max_run_length = std::max(max_run_length, current_run);
+                current_run = 1;
             }
         }
+        max_run_length = std::max(max_run_length, current_run);
 
-        if (_dlssgDetected && repeat_count == 0)
+        int detected_mode = 0;
+        if (max_run_length >= 4)
+            detected_mode = 3;
+        else if (max_run_length == 3)
+            detected_mode = 2;
+        else if (max_run_length == 2)
+            detected_mode = 1;
+
+        // --- Stability filter ---
+        static int candidate_mode = 0; // No FG at start
+        static int candidate_count = 0;
+        constexpr int stability_threshold = 4;
+
+        if (detected_mode == candidate_mode)
         {
-            _dlssgDetected = false;
-            LOG_DEBUG("DLSS FG no longer detected");
+            candidate_count++;
         }
-        else if (!_dlssgDetected && repeat_count >= history_size / 2 - 1)
+        else
         {
-            _dlssgDetected = true;
-            LOG_DEBUG("DLSS FG detected");
+            candidate_mode = detected_mode;
+            candidate_count = 1;
+        }
+
+        // Only commit after stable detection
+        if (candidate_count >= stability_threshold)
+        {
+            if (candidate_mode == 0 && _FgNumFramesToGenerate > 0)
+            {
+                _FgNumFramesToGenerate = 0;
+                LOG_DEBUG("DLSS FG no longer detected");
+            }
+            else if (_FgNumFramesToGenerate != candidate_mode)
+            {
+                _FgNumFramesToGenerate = candidate_mode;
+
+                LOG_DEBUG("DLSS FG detected: {}x mode", candidate_mode + 1);
+            }
         }
     }
 
     CALL_XEFG_NVAPI(NvAPI_D3D12_SetAsyncFrameMarker, pCommandQueue, pSetAsyncFrameMarkerParams);
-
     return o_NvAPI_D3D12_SetAsyncFrameMarker(pCommandQueue, pSetAsyncFrameMarkerParams);
 }
 
@@ -395,9 +430,9 @@ void ReflexHooks::hookReflex(PFN_NvApi_QueryInterface& queryInterface)
     }
 }
 
-bool ReflexHooks::isDlssgDetected() { return _dlssgDetected; }
+uint8_t ReflexHooks::dlssgFrameCountToGenerate() { return _FgNumFramesToGenerate; }
 
-void ReflexHooks::setDlssgDetectedState(bool state) { _dlssgDetected = state; }
+void ReflexHooks::setDlssgFrameCount(uint8_t count) { _FgNumFramesToGenerate = count; }
 
 bool ReflexHooks::isReflexHooked() { return _inited; }
 
@@ -589,22 +624,23 @@ void ReflexHooks::update(bool optiFg_FgState, bool isVulkan)
         return;
 
     float currentFps = Config::Instance()->FramerateLimit.value_or_default();
-    static bool lastDlssgDetectedState = false;
+    static uint8_t lastFgNumFramesToGenerate = false;
 
-    if (lastDlssgDetectedState != _dlssgDetected)
+    if (lastFgNumFramesToGenerate != _FgNumFramesToGenerate)
     {
-        lastDlssgDetectedState = _dlssgDetected;
+        lastFgNumFramesToGenerate = _FgNumFramesToGenerate;
         setFPSLimit(currentFps);
 
-        if (_dlssgDetected)
-            LOG_DEBUG("DLSS FG detected");
-        else
+        if (_FgNumFramesToGenerate == 0)
             LOG_DEBUG("DLSS FG no longer detected");
+        else
+            LOG_DEBUG("DLSS FG detected, mode: {}x", _FgNumFramesToGenerate + 1);
     }
 
-    if ((optiFg_FgState && State::Instance().activeFgOutput == FGOutput::FSRFG) ||
-        (_dlssgDetected && fakenvapi::isUsingAsMainNvapi()))
+    if (fgActive && State::Instance().activeFgOutput == FGOutput::FSRFG)
         currentFps /= 2;
+    else if (_FgNumFramesToGenerate > 0 && fakenvapi::isUsingAsMainNvapi())
+        currentFps /= (_FgNumFramesToGenerate + 1);
 
     if (currentFps != lastFps)
     {

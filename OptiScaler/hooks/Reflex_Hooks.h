@@ -30,8 +30,7 @@ class ReflexHooks
     inline static uint32_t _minimumIntervalUs = 0;
     inline static NV_SET_SLEEP_MODE_PARAMS _lastSleepParams {};
     inline static IUnknown* _lastSleepDev = nullptr;
-    inline static bool _dlssgDetected = false;
-    inline static bool _receivingMarkers = false;
+    inline static uint8_t _FgNumFramesToGenerate = 0;
     inline static uint64_t _lastAsyncMarkerFrameId = 0;
     inline static uint64_t _updatesWithoutMarker = 0;
 
@@ -80,8 +79,8 @@ class ReflexHooks
     static std::optional<TimingEntry> timingData[TimingType::TimingTypeCOUNT];
 
     static void hookReflex(PFN_NvApi_QueryInterface& queryInterface);
-    static bool isDlssgDetected();
-    static void setDlssgDetectedState(bool state);
+    static uint8_t dlssgFrameCountToGenerate();
+    static void setDlssgFrameCount(uint8_t count);
     static bool isReflexHooked();
     static void* getHookedReflex(unsigned int InterfaceId);
     static bool updateTimingData();

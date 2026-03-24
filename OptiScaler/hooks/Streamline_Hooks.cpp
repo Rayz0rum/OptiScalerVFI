@@ -649,7 +649,7 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
         {
             newOptions.mode = sl::DLSSGMode::eOff;
             newOptions.flags |= sl::DLSSGFlags::eRetainResourcesWhenOff;
-            ReflexHooks::setDlssgDetectedState(false);
+            ReflexHooks::setDlssgFrameCount(0);
         }
     }
 

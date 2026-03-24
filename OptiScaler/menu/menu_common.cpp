@@ -4095,22 +4095,28 @@ bool MenuCommon::RenderMenu()
                 }
 
                 // Nukems Mod
-                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems &&
-                    !State::Instance().NukemsMFG)
+                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems)
                 {
                     SeparatorWithHelpMarker("Frame Generation (FSR3-FG via Nukem's DLSSG)",
                                             "Requires Nukem's dlssg_to_fsr3 dll\nSelect DLSS-FG in-game");
 
-                    if (!state.NukemsFilesAvailable)
+                    if (!state.NukemsFilesAvailable && !State::Instance().NukemsMFG)
+                    {
                         ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f),
                                            "Please put dlssg_to_fsr3_amd_is_better.dll next to OptiScaler");
+                    }
+
+                    if (State::Instance().NukemsMFG)
+                    {
+                        ImGui::Text("Using Nukem's via the MFG mod from fsr3fg_mfg.asi");
+                    }
 
                     if (!ReflexHooks::isReflexHooked())
                     {
                         ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "Reflex not hooked");
                         ImGui::Text("If you are using an AMD/Intel GPU, then make sure you have Fakenvapi");
                     }
-                    else if (!ReflexHooks::isDlssgDetected())
+                    else if (ReflexHooks::dlssgFrameCountToGenerate() == 0)
                     {
                         ImGui::Text("Please select DLSS Frame Generation in the game options\n"
                                     "You might need to select DLSS first");
@@ -4120,16 +4126,26 @@ bool MenuCommon::RenderMenu()
                     {
                         ImGui::Text("Current DLSSG state:");
                         ImGui::SameLine();
-                        if (ReflexHooks::isDlssgDetected())
-                            ImGui::TextColored(ImVec4(0.f, 1.f, 0.25f, 1.f), "ON");
+                        if (auto count = ReflexHooks::dlssgFrameCountToGenerate(); count > 0)
+                        {
+                            ImGui::TextColored(ImVec4(0.f, 1.f, 0.25f, 1.f), std::format("ON {}x", count + 1).c_str());
+                        }
                         else
+                        {
                             ImGui::TextColored(ImVec4(1.f, 0.f, 0.f, 1.f), "OFF");
+                        }
 
-                        if (bool makeDepthCopy = config->MakeDepthCopy.value_or_default();
-                            ImGui::Checkbox("Fix broken visuals", &makeDepthCopy))
-                            config->MakeDepthCopy = makeDepthCopy;
-                        ShowHelpMarker("Makes a copy of the depth buffer\nCan fix broken visuals in some games on AMD "
-                                       "GPUs under Windows\nCan cause stutters, so best to use only when necessary");
+                        if (!State::Instance().NukemsMFG)
+                        {
+                            if (bool makeDepthCopy = config->MakeDepthCopy.value_or_default();
+                                ImGui::Checkbox("Fix broken visuals", &makeDepthCopy))
+                            {
+                                config->MakeDepthCopy = makeDepthCopy;
+                            }
+                            ShowHelpMarker(
+                                "Makes a copy of the depth buffer\nCan fix broken visuals in some games on AMD "
+                                "GPUs under Windows\nCan cause stutters, so best to use only when necessary");
+                        }
                     }
                     else if (state.swapchainApi == Vulkan)
                     {
@@ -4138,7 +4154,7 @@ bool MenuCommon::RenderMenu()
                         ImGui::Spacing();
                     }
 
-                    if (DLSSGMod::isLoaded())
+                    if (DLSSGMod::isLoaded() && !State::Instance().NukemsMFG)
                     {
                         if (DLSSGMod::is120orNewer())
                         {
@@ -4159,13 +4175,6 @@ bool MenuCommon::RenderMenu()
                             }
                         }
                     }
-                }
-
-                if (state.activeFgInput == FGInput::Nukems && state.activeFgOutput == FGOutput::Nukems &&
-                    State::Instance().NukemsMFG)
-                {
-                    ImGui::Text(
-                        "Using Nukem's via the MFG mod from fsr3fg_mfg.asi\nSelect MFG from the game's options");
                 }
 
                 // FSR-FG Inputs

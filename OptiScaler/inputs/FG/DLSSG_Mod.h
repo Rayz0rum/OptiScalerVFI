@@ -366,7 +366,7 @@ class DLSSGMod
             // Fixes an issue with the depth being corrupted on AMD under Windows
             ID3D12Resource* dlssgDepth = nullptr;
 
-            if (Config::Instance()->MakeDepthCopy.value_or_default())
+            if (Config::Instance()->MakeDepthCopy.value_or_default() && !State::Instance().NukemsMFG)
                 InParameters->Get("DLSSG.Depth", &dlssgDepth);
 
             if (dlssgDepth)
