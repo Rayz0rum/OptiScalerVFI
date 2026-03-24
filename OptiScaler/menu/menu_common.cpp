@@ -3036,6 +3036,45 @@ bool MenuCommon::RenderMenu()
                         ImGui::Spacing();
                     }
 
+                    if (state.dlssgMfgMax.has_value() && state.dlssgMfgMax.value() > 1)
+                    {
+                        auto maxInterpolationCount = state.dlssgMfgMax.value();
+
+                        if (maxInterpolationCount > 1)
+                        {
+                            const char* intModes[] = { "Off", "2X", "3X", "4X", "5X", "6X" };
+                            auto currentSet = config->FGDLSSGOverrideInterpolationCount.value_or(0);
+                            auto currentIntCount = intModes[currentSet];
+
+                            ImGui::PushItemWidth(95.0f * menuResScale);
+
+                            if (ImGui::BeginCombo("Override DLSSG", currentIntCount))
+                            {
+                                for (int i = 0; i <= maxInterpolationCount; i++)
+                                {
+                                    if (ImGui::Selectable(intModes[i], (currentSet == i)))
+                                    {
+                                        if (i == 0)
+                                        {
+                                            config->FGDLSSGOverrideInterpolationCount.reset();
+                                        }
+                                        else
+                                        {
+                                            LOG_DEBUG("DLSSG Interpolation Count set to: {}", i);
+                                            config->FGDLSSGOverrideInterpolationCount = i;
+                                        }
+                                    }
+                                }
+
+                                ImGui::EndCombo();
+                            }
+
+                            ImGui::PopItemWidth();
+
+                            ShowHelpMarker("Overrides DLSSG interpolation count");
+                        }
+                    }
+
                     auto fgOutput = reinterpret_cast<IFGFeature_Dx12*>(state.currentFG);
                     if (((state.activeFgOutput == FGOutput::FSRFG || state.activeFgOutput == FGOutput::XeFG ||
                           state.activeFgOutput == FGOutput::DLSSG) &&

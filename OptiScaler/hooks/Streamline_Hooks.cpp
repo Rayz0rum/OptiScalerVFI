@@ -637,11 +637,13 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
     sl::DLSSGOptions newOptions = options;
     newOptions.mode = newOptions.mode == sl::DLSSGMode::eOff ? sl::DLSSGMode::eOff : sl::DLSSGMode::eOn;
 
-    if (State::Instance().swapchainApi == API::Vulkan)
+    auto& s = State::Instance();
+
+    if (s.swapchainApi == API::Vulkan)
     {
         // Only matters for Vulkan, DX doesn't use this delay
         if (options.mode != sl::DLSSGMode::eOff && !MenuOverlayBase::IsVisible())
-            State::Instance().delayMenuRenderBy = 10;
+            s.delayMenuRenderBy = 10;
 
         if (MenuOverlayBase::IsVisible())
         {
@@ -653,6 +655,32 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
 
     LOG_TRACE("DLSSG Modified Mode: {}", magic_enum::enum_name(newOptions.mode));
 
+    if (options.mode != sl::DLSSGMode::eOff && s.streamlineVersion >= feature_version { 2, 7, 2 })
+    {
+        if (!s.dlssgMfgMax.has_value())
+        {
+            sl::DLSSGState localState {};
+            sl::DLSSGOptions localOptions {};
+            if (o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
+                localState.numFramesToGenerateMax > 0 && localState.numFramesToGenerateMax < 6)
+            {
+                s.dlssgMfgMax = localState.numFramesToGenerateMax;
+                LOG_TRACE("Saving original numFramesToGenerateMax: {}", s.dlssgMfgMax.value());
+
+                if (Config::Instance()->FGDLSSGOverrideInterpolationCount.has_value() &&
+                    Config::Instance()->FGDLSSGOverrideInterpolationCount.value() > s.dlssgMfgMax.value())
+                {
+                    Config::Instance()->FGDLSSGOverrideInterpolationCount = s.dlssgMfgMax.value();
+                }
+            }
+        }
+
+        if (Config::Instance()->FGDLSSGOverrideInterpolationCount.has_value())
+        {
+            newOptions.numFramesToGenerate = Config::Instance()->FGDLSSGOverrideInterpolationCount.value();
+        }
+    }
+
     return o_slDLSSGSetOptions(viewport, newOptions);
 }
 
@@ -662,6 +690,27 @@ sl::Result StreamlineHooks::hkslDLSSGGetState(const sl::ViewportHandle& viewport
     auto result = o_slDLSSGGetState(viewport, state, options);
 
     auto& s = State::Instance();
+
+    if (s.streamlineVersion >= feature_version { 2, 7, 2 })
+    {
+        if (!s.dlssgMfgMax.has_value())
+        {
+            sl::DLSSGState localState {};
+            sl::DLSSGOptions localOptions {};
+            if (o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
+                localState.numFramesToGenerateMax > 0 && localState.numFramesToGenerateMax < 6)
+            {
+                s.dlssgMfgMax = localState.numFramesToGenerateMax;
+                LOG_TRACE("Saving original numFramesToGenerateMax: {}", s.dlssgMfgMax.value());
+
+                if (Config::Instance()->FGDLSSGOverrideInterpolationCount.has_value() &&
+                    Config::Instance()->FGDLSSGOverrideInterpolationCount.value() > s.dlssgMfgMax.value())
+                {
+                    Config::Instance()->FGDLSSGOverrideInterpolationCount = s.dlssgMfgMax.value();
+                }
+            }
+        }
+    }
 
     if (s.activeFgInput == FGInput::DLSSG)
     {

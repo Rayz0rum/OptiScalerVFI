@@ -148,6 +148,8 @@ class State
 
     feature_version streamlineVersion = { 0, 0, 0 };
 
+    std::optional<int> dlssgMfgMax = std::nullopt;
+
     API api = API::NotSelected;
     API swapchainApi = API::NotSelected;
 
