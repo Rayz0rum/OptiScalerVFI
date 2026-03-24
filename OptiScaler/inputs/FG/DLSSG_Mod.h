@@ -70,7 +70,11 @@ class DLSSGMod
 
         // set early so the hooks know
         State::Instance().NukemsMFG = true;
-        _dll = NtdllProxy::LoadLibraryExW_Ldr(dllPath.c_str(), NULL, 0);
+        {
+            // Lets the MFG mod provide fakenvapi
+            ScopedSkipSpoofing skipSpoofing {};
+            _dll = NtdllProxy::LoadLibraryExW_Ldr(dllPath.c_str(), NULL, 0);
+        }
 
         if (_dll != nullptr)
         {
