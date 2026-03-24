@@ -71,9 +71,12 @@ static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
     ID3D12Device* device12 = nullptr;
     ID3D12CommandQueue* cq = nullptr;
 
+    bool isD3D11 = false;
+
     // try to obtain directx objects and find the path
     if (pDevice->QueryInterface(IID_PPV_ARGS(&device)) == S_OK)
     {
+        isD3D11 = true;
         device->Release();
 
         if (!_dx11Device)
@@ -222,9 +225,26 @@ static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
             presentResult = ((IDXGISwapChain1*) pSwapChain)->Present1(SyncInterval, Flags, pPresentParameters);
 
         if (presentResult == S_OK)
+        {
             LOG_TRACE("3 {}", (UINT) presentResult);
+        }
+        else if (presentResult == DXGI_ERROR_DEVICE_REMOVED)
+        {
+            if (isD3D11)
+            {
+                if (State::Instance().currentD3D11Device != nullptr)
+                    Util::GetDeviceRemovedReason(State::Instance().currentD3D11Device);
+            }
+            else
+            {
+                if (State::Instance().currentD3D12Device != nullptr)
+                    Util::GetDeviceRemovedReason(State::Instance().currentD3D12Device);
+            }
+        }
         else
+        {
             LOG_ERROR("3 {:X}", (UINT) presentResult);
+        }
 
         return presentResult;
     }

@@ -100,7 +100,18 @@ bool OS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
         // Copy the updated constant buffer data to the constant buffer resource
         UINT8* pCBDataBegin;
         CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU
-        _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        auto result = _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+
+        if (result != S_OK)
+        {
+            LOG_ERROR("[{0}] _constantBuffer->Map error {1:x}", _name, (unsigned int) result);
+
+            if (result == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+                Util::GetDeviceRemovedReason(_device);
+
+            return false;
+        }
+
         memcpy(pCBDataBegin, &fsr1Constants, sizeof(fsr1Constants));
         _constantBuffer->Unmap(0, nullptr);
 
@@ -112,7 +123,18 @@ bool OS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
         // Copy the updated constant buffer data to the constant buffer resource
         UINT8* pCBDataBegin;
         CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU
-        _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        auto result = _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+
+        if (result != S_OK)
+        {
+            LOG_ERROR("[{0}] _constantBuffer->Map error {1:x}", _name, (unsigned int) result);
+
+            if (result == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+                Util::GetDeviceRemovedReason(_device);
+
+            return false;
+        }
+
         memcpy(pCBDataBegin, &constants, sizeof(constants));
         _constantBuffer->Unmap(0, nullptr);
 

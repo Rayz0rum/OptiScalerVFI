@@ -148,6 +148,9 @@ bool Bias_Dx11::Dispatch(ID3D11Device* InDevice, ID3D11DeviceContext* InContext,
     auto hr = InContext->Map(_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
     if (FAILED(hr))
     {
+        if (hr == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+            Util::GetDeviceRemovedReason(_device);
+
         LOG_ERROR("[{0}] Map error {1:x}", _name, hr);
         return false;
     }

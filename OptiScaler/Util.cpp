@@ -520,3 +520,73 @@ bool Util::CheckForRealObject(std::string functionName, IUnknown* pObject, IUnkn
 
     return false;
 }
+
+void Util::GetDeviceRemovedReason(ID3D11Device* pDevice)
+{
+    auto reason = pDevice->GetDeviceRemovedReason();
+
+    switch (reason)
+    {
+    case DXGI_ERROR_DEVICE_HUNG:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DEVICE_HUNG");
+        break;
+
+    case DXGI_ERROR_DEVICE_RESET:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DEVICE_RESET");
+        break;
+
+    case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DRIVER_INTERNAL_ERROR");
+        break;
+
+    case DXGI_ERROR_INVALID_CALL:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_INVALID_CALL");
+        break;
+
+    case E_OUTOFMEMORY:
+        LOG_ERROR("Device removed reason: E_OUTOFMEMORY");
+        break;
+
+    case E_FAIL:
+        LOG_ERROR("Device removed reason: E_FAIL");
+        break;
+
+    default:
+        LOG_ERROR("Device removed reason: Unknown ({:X})", reason);
+    }
+}
+
+void Util::GetDeviceRemovedReason(ID3D12Device* pDevice)
+{
+    auto reason = pDevice->GetDeviceRemovedReason();
+
+    switch (reason)
+    {
+    case DXGI_ERROR_DEVICE_HUNG:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DEVICE_HUNG");
+        break;
+
+    case DXGI_ERROR_DEVICE_RESET:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DEVICE_RESET");
+        break;
+
+    case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_DRIVER_INTERNAL_ERROR");
+        break;
+
+    case DXGI_ERROR_INVALID_CALL:
+        LOG_ERROR("Device removed reason: DXGI_ERROR_INVALID_CALL");
+        break;
+
+    case E_OUTOFMEMORY:
+        LOG_ERROR("Device removed reason: E_OUTOFMEMORY");
+        break;
+
+    case E_FAIL:
+        LOG_ERROR("Device removed reason: E_FAIL");
+        break;
+
+    default:
+        LOG_ERROR("Device removed reason: Unknown ({:X})", reason);
+    }
+}

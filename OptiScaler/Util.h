@@ -3,7 +3,9 @@
 
 #include <filesystem>
 
-#include <dxgi.h>
+#include <dxgi1_6.h>
+#include <d3d11.h>
+#include <d3d12.h>
 #include <xess.h>
 
 namespace Util
@@ -48,6 +50,8 @@ MonitorInfo GetMonitorInfoForWindow(HWND hwnd);
 MonitorInfo GetMonitorInfoForOutput(IDXGIOutput* pOutput);
 int GetActiveRefreshRate(HWND hwnd);
 bool CheckForRealObject(std::string functionName, IUnknown* pObject, IUnknown** ppRealObject);
+void GetDeviceRemovedReason(ID3D11Device* pDevice);
+void GetDeviceRemovedReason(ID3D12Device* pDevice);
 
 }; // namespace Util
 

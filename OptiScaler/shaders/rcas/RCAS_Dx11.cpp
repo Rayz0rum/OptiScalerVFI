@@ -194,6 +194,10 @@ bool RCAS_Dx11::Dispatch(ID3D11Device* InDevice, ID3D11DeviceContext* InContext,
     if (FAILED(hr))
     {
         LOG_ERROR("[{0}] Map error {1:x}", _name, hr);
+
+        if (hr == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+            Util::GetDeviceRemovedReason(_device);
+
         return false;
     }
 

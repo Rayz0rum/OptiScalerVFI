@@ -293,6 +293,10 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     if (result != S_OK)
     {
         LOG_ERROR("_constantBuffer->Map error {:X}", (unsigned int) result);
+
+        if (result == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+            Util::GetDeviceRemovedReason(_device);
+
         return false;
     }
 

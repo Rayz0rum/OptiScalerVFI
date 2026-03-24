@@ -55,6 +55,10 @@ bool RF_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
     if (result != S_OK)
     {
         LOG_ERROR("[{0}] _constantBuffer->Map error {1:x}", _name, (UINT) result);
+
+        if (result == DXGI_ERROR_DEVICE_REMOVED && _device != nullptr)
+            Util::GetDeviceRemovedReason(_device);
+
         return false;
     }
 
