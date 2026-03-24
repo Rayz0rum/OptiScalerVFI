@@ -1758,6 +1758,13 @@ void IFeature_VkwDx12::ReleaseSharedResources()
     SAFE_DESTROY_VK(vkDestroyImage, VulkanDevice, vkReactive.VkSharedImage, nullptr);
     SAFE_DESTROY_VK(vkDestroyImage, VulkanDevice, vkExp.VkSharedImage, nullptr);
 
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkColor.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkMv.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkOut.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkDepth.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkReactive.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkExp.VkSharedImageView, nullptr);
+
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkColor.VkSharedMemory, nullptr);
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkMv.VkSharedMemory, nullptr);
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkOut.VkSharedMemory, nullptr);
