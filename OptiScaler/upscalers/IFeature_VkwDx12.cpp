@@ -1751,6 +1751,13 @@ void IFeature_VkwDx12::ReleaseSharedResources()
     SAFE_DESTROY_VK(vkDestroyImage, VulkanDevice, vkReactive.VkSharedImage, nullptr);
     SAFE_DESTROY_VK(vkDestroyImage, VulkanDevice, vkExp.VkSharedImage, nullptr);
 
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkColor.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkMv.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkOut.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkDepth.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkReactive.VkSharedImageView, nullptr);
+    SAFE_DESTROY_VK(vkDestroyImageView, VulkanDevice, vkExp.VkSharedImageView, nullptr);
+
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkColor.VkSharedMemory, nullptr);
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkMv.VkSharedMemory, nullptr);
     SAFE_DESTROY_VK(vkFreeMemory, VulkanDevice, vkOut.VkSharedMemory, nullptr);
@@ -1940,11 +1947,16 @@ void IFeature_VkwDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapter
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
                 continue;
+            }
 
             *InAdapter = adapter;
             break;
         }
+
+        factory6->Release();
     }
     else
     {
@@ -1956,7 +1968,10 @@ void IFeature_VkwDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapter
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
                 continue;
+            }
 
             auto result = D3d12Proxy::D3D12CreateDevice_()(adapter, InFeatureLevel, _uuidof(ID3D12Device), nullptr);
 
@@ -1965,6 +1980,10 @@ void IFeature_VkwDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapter
                 LOG_DEBUG("D3D12CreateDevice test result: {:X}", (UINT) result);
                 *InAdapter = adapter;
                 break;
+            }
+            else
+            {
+                adapter->Release();
             }
         }
     }
