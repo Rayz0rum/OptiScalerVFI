@@ -10,6 +10,21 @@
 typedef void (*PFN_RefreshGlobalConfiguration)();
 typedef void (*PFN_EnableDebugView)(bool enable);
 
+static decltype(&GetCommandLineA) o_GetCommandLineA = GetCommandLineA;
+
+static LPSTR WINAPI hkGetCommandLineA(void)
+{
+    static std::string modified;
+
+    LPSTR original = o_GetCommandLineA();
+
+    // Disable unused code
+    modified = original;
+    modified += " --dlss-off";
+
+    return (LPSTR) modified.c_str();
+}
+
 class DLSSGMod
 {
   private:
@@ -70,10 +85,25 @@ class DLSSGMod
 
         // set early so the hooks know
         State::Instance().NukemsMFG = true;
+
+        if (o_GetCommandLineA)
         {
-            // Lets the MFG mod provide fakenvapi
-            ScopedSkipSpoofing skipSpoofing {};
+
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+
+            DetourAttach(&(PVOID&) o_GetCommandLineA, hkGetCommandLineA);
+
+            DetourTransactionCommit();
+
             _dll = NtdllProxy::LoadLibraryExW_Ldr(dllPath.c_str(), NULL, 0);
+
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+
+            DetourDetach(&(PVOID&) o_GetCommandLineA, hkGetCommandLineA);
+
+            DetourTransactionCommit();
         }
 
         if (_dll != nullptr)
