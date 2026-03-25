@@ -342,7 +342,7 @@ class Config
     CustomOptional<bool> UsePrecompiledShaders { true };
 
     CustomOptional<bool> UseGenericAppIdWithDlss { false };
-    CustomOptional<bool> PreferDedicatedGpu { false };
+    CustomOptional<bool> PreferDedicatedGpu { true };
     CustomOptional<bool> PreferFirstDedicatedGpu { false };
 
     CustomOptional<int32_t, NoDefault> ColorResourceBarrier;    // disabled by default
