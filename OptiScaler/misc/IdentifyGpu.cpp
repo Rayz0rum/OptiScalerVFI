@@ -344,6 +344,14 @@ std::vector<GpuInformation> IdentifyGpu::getAllGpus()
     static std::vector<GpuInformation> cache = []() { return checkGpuInfo(); }();
     skip = false;
 
+    // Retry getting the GPU info in case it failed
+    static std::mutex mutex;
+    if (cache.size() == 0 || (cache.size() > 0 && cache[0].deviceId == VendorId::Invalid))
+    {
+        std::scoped_lock lock(mutex);
+        cache = checkGpuInfo();
+    }
+
     return cache;
 }
 
