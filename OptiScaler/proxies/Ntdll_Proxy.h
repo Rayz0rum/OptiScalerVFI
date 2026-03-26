@@ -17,6 +17,8 @@ class NtdllProxy
 
     typedef NTSTATUS(NTAPI* PFN_LdrUnloadDll)(PVOID ModuleHandle);
 
+    typedef NTSTATUS(NTAPI* PFN_RtlGetVersion)(PRTL_OSVERSIONINFOW lpVersionInformation);
+
     static HMODULE LoadLibraryExW_Ldr(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
     {
         UNICODE_STRING uName;
@@ -60,12 +62,26 @@ class NtdllProxy
 
         o_RtlInitUnicodeString = (PFN_RtlInitUnicodeString) GetProcAddress(_dll, "RtlInitUnicodeString");
         o_RtlNtStatusToDosError = (PFN_RtlNtStatusToDosError) GetProcAddress(_dll, "RtlNtStatusToDosError");
+        o_RtlGetVersion = (PFN_RtlGetVersion) GetProcAddress(_dll, "RtlGetVersion");
         o_LdrLoadDll = (PFN_LdrLoadDll) GetProcAddress(_dll, "LdrLoadDll");
         o_LdrUnloadDll = (PFN_LdrUnloadDll) GetProcAddress(_dll, "LdrUnloadDll");
         o_NtLoadDll = (PFN_NtLoadDll) GetProcAddress(_dll, "NtLoadDll");
     }
 
     static HMODULE Module() { return _dll; }
+
+    static PFN_RtlGetVersion Hook_RtlGetVersion(PVOID method)
+    {
+        auto addr = o_RtlGetVersion;
+
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourAttach(&(PVOID&) addr, method);
+        DetourTransactionCommit();
+
+        o_RtlGetVersion = addr;
+        return addr;
+    }
 
     static PFN_LdrLoadDll Hook_LdrLoadDll(PVOID method)
     {
@@ -117,4 +133,5 @@ class NtdllProxy
     inline static PFN_NtLoadDll o_NtLoadDll = nullptr;
     inline static PFN_RtlInitUnicodeString o_RtlInitUnicodeString = nullptr;
     inline static PFN_RtlNtStatusToDosError o_RtlNtStatusToDosError = nullptr;
+    inline static PFN_RtlGetVersion o_RtlGetVersion = nullptr;
 };
