@@ -46,24 +46,20 @@ class StreamlineProxy
     typedef void* (*PFN_slGetPluginFunction)(const char* functionName);
 
     // DLSSG
-    typedef sl::Result (*PFN_slDLSSGSetOptions)(const sl::ViewportHandle& viewport, const sl::DLSSGOptions& options);
-    typedef sl::Result (*PFN_slDLSSGGetState)(const sl::ViewportHandle& viewport, sl::DLSSGState& state,
-                                              const sl::DLSSGOptions* options);
+    typedef decltype(&slDLSSGSetOptions) PFN_slDLSSGSetOptions;
+    typedef decltype(&slDLSSGGetState) PFN_slDLSSGGetState;
 
     // Reflex
-    typedef sl::Result (*PFN_slReflexGetState)(sl::ReflexState& state);
-    typedef sl::Result (*PFN_slReflexSleep)(const sl::FrameToken& frame);
-    typedef sl::Result (*PFN_slReflexSetOptions)(const sl::ReflexOptions& options);
-    typedef sl::Result (*PFN_slReflexSetCameraData)(const sl::ViewportHandle& viewport, const sl::FrameToken& frame,
-                                                    const sl::ReflexCameraData& inCameraData);
-    typedef sl::Result (*PFN_slReflexGetPredictedCameraData)(const sl::ViewportHandle& viewport,
-                                                             const sl::FrameToken& frame,
-                                                             sl::ReflexPredictedCameraData& outCameraData);
+    typedef decltype(&slReflexGetState) PFN_slReflexGetState;
+    typedef decltype(&slReflexSleep) PFN_slReflexSleep;
+    typedef decltype(&slReflexSetOptions) PFN_slReflexSetOptions;
+    typedef decltype(&slReflexSetCameraData) PFN_slReflexSetCameraData;
+    typedef decltype(&slReflexGetPredictedCameraData) PFN_slReflexGetPredictedCameraData;
 
     // PCL
-    typedef sl::Result (*PFN_slPCLGetState)(sl::PCLState& state);
-    typedef sl::Result (*PFN_slPCLSetMarker)(sl::PCLMarker marker, const sl::FrameToken& frame);
-    typedef sl::Result (*PFN_slPCLSetOptions)(const sl::PCLOptions& options);
+    typedef decltype(&slPCLGetState) PFN_slPCLGetState;
+    typedef decltype(&slPCLSetMarker) PFN_slPCLSetMarker;
+    typedef decltype(&slPCLSetOptions) PFN_slPCLSetOptions;
 
     static HMODULE Module() { return _dll; }
 
