@@ -315,7 +315,7 @@ class Config
         L"idtechlauncher.exe|cefviewwing.exe|ace-setup64.exe|ace-service64.exe|qtwebengineprocess.exe|"
         L"platformprocess.exe|bugsplathd64.exe|bssndrpt64.exe|pspcsdkappmgr.exe|pspcsdkcore.exe|pspcsdkstttts.exe|"
         L"pspcsdktelemetry.exe|pspcsdkui.exe|pspcsdkupdatechecker.exe|pspcsdkvoicechat.exe|pspcsdkwebview.exe|windhawk."
-        L"exe|vscodium.exe|crash_reporter.exe|steamerrorreporter64.exe"
+        L"exe|vscodium.exe|crash_reporter.exe|steamerrorreporter64.exe|crashreportclient.exe"
     };
 
     // Hotfixes
