@@ -962,21 +962,10 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChain(IDXGIFactory* realFactory, IUnkno
                         {
                             IDXGIAdapter* adapter = nullptr;
                             if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                            {
-                                adapter->GetDesc(&State::Instance().currentD3D12AdepterDesc);
                                 adapter->Release();
-                            }
-                            else
-                            {
-                                State::Instance().currentD3D12AdepterDesc = {};
-                            }
 
                             dxgiDevice->Release();
                         }
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D12AdepterDesc = {};
                     }
 
                     LOG_INFO("Captured D3D12 device from command queue: {:X}", (UINT64) device);
@@ -1025,21 +1014,10 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChain(IDXGIFactory* realFactory, IUnkno
                 {
                     IDXGIAdapter* adapter = nullptr;
                     if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                    {
-                        adapter->GetDesc(&State::Instance().currentD3D11AdepterDesc);
                         adapter->Release();
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D11AdepterDesc = {};
-                    }
 
                     dxgiDevice->Release();
                 }
-            }
-            else
-            {
-                State::Instance().currentD3D11AdepterDesc = {};
             }
         }
     }
@@ -1292,21 +1270,10 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChainForHwnd(IDXGIFactory2* realFactory
                         {
                             IDXGIAdapter* adapter = nullptr;
                             if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                            {
-                                adapter->GetDesc(&State::Instance().currentD3D12AdepterDesc);
                                 adapter->Release();
-                            }
-                            else
-                            {
-                                State::Instance().currentD3D12AdepterDesc = {};
-                            }
 
                             dxgiDevice->Release();
                         }
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D12AdepterDesc = {};
                     }
 
                     LOG_INFO("Captured D3D12 device from command queue: {:X}", (UINT64) device);
@@ -1358,21 +1325,10 @@ HRESULT DxgiFactoryHooks::DLSSGCreateSwapChainForHwnd(IDXGIFactory2* realFactory
                 {
                     IDXGIAdapter* adapter = nullptr;
                     if (dxgiDevice->GetAdapter(&adapter) == S_OK)
-                    {
-                        adapter->GetDesc(&State::Instance().currentD3D11AdepterDesc);
                         adapter->Release();
-                    }
-                    else
-                    {
-                        State::Instance().currentD3D11AdepterDesc = {};
-                    }
 
                     dxgiDevice->Release();
                 }
-            }
-            else
-            {
-                State::Instance().currentD3D11AdepterDesc = {};
             }
         }
     }

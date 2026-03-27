@@ -568,7 +568,7 @@ bool ReflexHooks::gameIsSendingMarkers()
 }
 
 // For updating information about Reflex hooks
-void ReflexHooks::update(bool optiFg_FgState, bool isVulkan)
+void ReflexHooks::update(bool fgActive, bool isVulkan)
 {
     // We can still use just the markers to limit the fps with Reflex disabled
     // But need to fallback in case a game stops sending them for some reason
@@ -584,19 +584,18 @@ void ReflexHooks::update(bool optiFg_FgState, bool isVulkan)
 
     if (isVulkan)
     {
-        // optiFg_FgState doesn't matter for vulkan
+        // fgActive doesn't matter for vulkan
         // isUsingAsMainNvapi() because fakenvapi might override the reflex' setting and we don't know it
         State::Instance().reflexLimitsFps = fakenvapi::isUsingAsMainNvapi() || _lastVkSleepParams.bLowLatencyMode;
     }
     else
     {
-        // Don't use when: Real Reflex markers + OptiFG + Reflex disabled, causes huge input latency
-        State::Instance().reflexLimitsFps = fakenvapi::isUsingAsMainNvapi() || !optiFg_FgState ||
-                                            _lastSleepParams.bLowLatencyMode ||
-                                            State::Instance().activeFgOutput == FGOutput::DLSSG;
-        State::Instance().reflexShowWarning =
-            State::Instance().activeFgOutput != FGOutput::XeFG && State::Instance().activeFgOutput != FGOutput::DLSSG &&
-            !fakenvapi::isUsingAsMainNvapi() && optiFg_FgState && _lastSleepParams.bLowLatencyMode;
+        // Don't use when: Real Reflex markers + FSR FG + Reflex disabled, causes huge input latency
+        State::Instance().reflexLimitsFps =
+            fakenvapi::isUsingAsMainNvapi() || !fgActive || _lastSleepParams.bLowLatencyMode;
+        State::Instance().reflexShowWarning = State::Instance().activeFgOutput == FGOutput::FSRFG &&
+                                              !fakenvapi::isUsingAsMainNvapi() && fgActive &&
+                                              _lastSleepParams.bLowLatencyMode;
     }
 
     // Disable reflex fps limiting when reflex is force disabled
