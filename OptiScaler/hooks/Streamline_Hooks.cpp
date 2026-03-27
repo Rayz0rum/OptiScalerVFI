@@ -300,23 +300,26 @@ void StreamlineHooks::streamlineLogCallback_sl1(sl1::LogType type, const char* m
 {
     char* trimmed_msg = trimStreamlineLog(msg);
 
-    switch (type)
+    if (trimmed_msg != nullptr)
     {
-    case sl1::LogType::eLogTypeWarn:
-        LOG_WARN("{}", trimmed_msg);
-        break;
-    case sl1::LogType::eLogTypeInfo:
-        LOG_INFO("{}", trimmed_msg);
-        break;
-    case sl1::LogType::eLogTypeError:
-        LOG_ERROR("{}", trimmed_msg);
-        break;
-    case sl1::LogType::eLogTypeCount:
-        LOG_ERROR("{}", trimmed_msg);
-        break;
-    }
+        switch (type)
+        {
+        case sl1::LogType::eLogTypeWarn:
+            LOG_WARN("{}", trimmed_msg);
+            break;
+        case sl1::LogType::eLogTypeInfo:
+            LOG_INFO("{}", trimmed_msg);
+            break;
+        case sl1::LogType::eLogTypeError:
+            LOG_ERROR("{}", trimmed_msg);
+            break;
+        case sl1::LogType::eLogTypeCount:
+            LOG_ERROR("{}", trimmed_msg);
+            break;
+        }
 
-    free(trimmed_msg);
+        free(trimmed_msg);
+    }
 
     if (o_logCallback_sl1)
         o_logCallback_sl1(type, msg);
