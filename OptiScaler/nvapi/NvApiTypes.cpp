@@ -1,8 +1,8 @@
 #include "pch.h"
 #include "NvApiTypes.h"
 
-#include <nvapi_interface.h>
 #include <fakenvapi_inc.h>
+#include <include/nvapi/nvapi_interface.h>
 
 NvApiTypes::NvApiTypes()
 {

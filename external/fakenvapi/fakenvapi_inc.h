@@ -3,19 +3,22 @@
 #pragma once
 
 #include <cstdint>
-#include <nvapi.h>
+#include <include/nvapi/nvapi.h>
 
-struct FAKENVAPI_INTERFACE_TABLE { const char * func; unsigned int id; };
-inline struct FAKENVAPI_INTERFACE_TABLE fakenvapi_interface_table[] = {
-    { "Fake_GetLatency", 0x21372137 },
-    { "Fake_InformFGState", 0x21382138 },
-    { "Fake_InformPresentFG", 0x21392139 },
-    { "Fake_GetAntiLagCtx", 0x21402140 },
-    { "Fake_GetLowLatencyCtx", 0x21412141 },
-    { "Fake_SetLowLatencyCtx", 0x21422142 }
+struct FAKENVAPI_INTERFACE_TABLE
+{
+    const char* func;
+    unsigned int id;
 };
 
-enum class Mode {
+inline struct FAKENVAPI_INTERFACE_TABLE fakenvapi_interface_table[] = {
+    { "Fake_GetLatency", 0x21372137 },       { "Fake_InformFGState", 0x21382138 },
+    { "Fake_InformPresentFG", 0x21392139 },  { "Fake_GetAntiLagCtx", 0x21402140 },
+    { "Fake_GetLowLatencyCtx", 0x21412141 }, { "Fake_SetLowLatencyCtx", 0x21422142 }
+};
+
+enum class Mode
+{
     LatencyFlex,
     AntiLag2,
     XeLL,

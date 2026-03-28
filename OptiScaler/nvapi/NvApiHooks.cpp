@@ -1,6 +1,6 @@
 #include "pch.h"
 #include "NvApiHooks.h"
-#include <NvApiDriverSettings.h>
+#include <include/nvapi/NvApiDriverSettings.h>
 
 #include "State.h"
 #include <Config.h>

@@ -3,7 +3,7 @@
 #include "SysUtils.h"
 #include <dxgi.h>
 #include <d3d12.h>
-#include <nvapi.h>
+#include <include/nvapi/nvapi.h>
 
 #define GET_ID(name) NvApiTypes::Instance().getId(#name)
 #define GET_INTERFACE(name, queryInterface) reinterpret_cast<decltype(&name)>(queryInterface(GET_ID(name)))
