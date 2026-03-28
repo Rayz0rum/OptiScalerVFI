@@ -587,6 +587,6 @@ void Util::GetDeviceRemovedReason(ID3D12Device* pDevice)
         break;
 
     default:
-        LOG_ERROR("Device removed reason: Unknown ({:X})", reason);
+        LOG_ERROR("Device removed reason: Unknown ({:X})", (UINT) reason);
     }
 }

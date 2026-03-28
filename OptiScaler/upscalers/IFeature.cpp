@@ -65,7 +65,6 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
         }
         else
         {
-
             _initFlags.LowResMV = _featureFlags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
         }
 
@@ -161,6 +160,15 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
 
         LOG_INFO("Render Resolution: {0}x{1}, Display Resolution {2}x{3}, Quality: {4}", _renderWidth, _renderHeight,
                  _displayWidth, _displayHeight, pqValue);
+
+        // If output scaling is enabled and render res is equal to display res, enable low res MVs
+        // because we will use display res MV as render res and upscale with it
+        if (Config::Instance()->OutputScalingEnabled.value_or_default() && !_initFlags.LowResMV &&
+            _renderWidth == _displayWidth)
+        {
+            LOG_INFO("Output Scaling is active with render size equal to display size, enabling low res MVs");
+            _initFlags.LowResMV = true;
+        }
 
         return true;
     }
