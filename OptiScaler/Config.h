@@ -445,7 +445,7 @@ class Config
     CustomOptional<bool> FGPreserveSwapChain { true };
     CustomOptional<bool> FGSkipResizeBuffers { true };
     CustomOptional<bool> FGModifyBufferState { false };
-    CustomOptional<bool> FGModifySCIndex { false };
+    CustomOptional<bool> FGModifySCIndex { true };
     CustomOptional<FrameTimeSource> FTInput { FrameTimeSource::Input };
 
     // OptiFG
