@@ -248,6 +248,16 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("milesmorales.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("spider-man2.exe", GameQuirk::DisableDxgiSpoofing),
     QUIRK_ENTRY("ds2.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::FSRFGHudlessMismatchFixup),
+    //
+    // Dxgi spoofing disabled, DLSS-FG available, standalone Reflex can be unlocked with -unlockReflexOptions launch
+    // option if needed
+    // Horizon Zero Dawn Remastered, Horizon Forbidden West Complete Edition, Ghost of Tsushima DIRECTOR'S CUT, The Last
+    // of Us Part II Remastered
+    QUIRK_ENTRY("horizonzerodawnremastered.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("horizonforbiddenwest.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("ghostoftsushima.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("tlou-ii.exe", GameQuirk::DisableDxgiSpoofing),
+    QUIRK_ENTRY("tlou-ii-l.exe", GameQuirk::DisableDxgiSpoofing),
 
     // Dead Space Remake
     // Override Vsync required to avoid crash on boot
