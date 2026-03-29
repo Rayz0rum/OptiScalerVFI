@@ -377,19 +377,17 @@ static Fsr3::FfxErrorCode hkffxCreateFrameinterpolationSwapchainDX12(DXGI_SWAP_C
                                                                      IDXGIFactory* dxgiFactory,
                                                                      Fsr3::FfxSwapchain& outGameSwapChain)
 {
-    if (State::Instance().currentSwapchain != nullptr &&
+    if (State::Instance().currentWrappedSwapchain != nullptr &&
         State::Instance().currentSwapchainDesc.OutputWindow == desc->OutputWindow)
     {
-        auto refCount = State::Instance().currentSwapchain->Release();
+        auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-        while (refCount > 0 && refCount != 0xffffffff)
+        while (refCount > 0 && refCount < 0xffffff00)
         {
-            refCount = State::Instance().currentSwapchain->Release();
+            refCount = State::Instance().currentWrappedSwapchain->Release();
         }
 
-        State::Instance().currentSwapchain = nullptr;
-        State::Instance().currentFGSwapchain = nullptr;
-        State::Instance().currentSwapchainDesc = {};
+        State::Instance().currentWrappedSwapchain = nullptr;
     }
 
     auto result = dxgiFactory->CreateSwapChain(queue, desc, (IDXGISwapChain**) &outGameSwapChain);
@@ -408,19 +406,17 @@ static Fsr3::FfxErrorCode hkffxCreateFrameinterpolationSwapchainForHwndDX12(
     {
         df->Release();
 
-        if (State::Instance().currentSwapchain != nullptr &&
+        if (State::Instance().currentWrappedSwapchain != nullptr &&
             State::Instance().currentSwapchainDesc.OutputWindow == hWnd)
         {
-            auto refCount = State::Instance().currentSwapchain->Release();
+            auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-            while (refCount > 0 && refCount != 0xffffffff)
+            while (refCount > 0 && refCount < 0xffffff00)
             {
-                refCount = State::Instance().currentSwapchain->Release();
+                refCount = State::Instance().currentWrappedSwapchain->Release();
             }
 
-            State::Instance().currentSwapchain = nullptr;
-            State::Instance().currentFGSwapchain = nullptr;
-            State::Instance().currentSwapchainDesc = {};
+            State::Instance().currentWrappedSwapchain = nullptr;
         }
 
         result = df->CreateSwapChainForHwnd(queue, hWnd, desc1, fullscreenDesc, nullptr,

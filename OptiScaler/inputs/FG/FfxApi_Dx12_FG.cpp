@@ -328,19 +328,17 @@ ffxReturnCode_t ffxCreateContext_Dx12FG(ffxContext* context, ffxCreateContextDes
     {
         auto cDesc = (ffxCreateContextDescFrameGenerationSwapChainNewDX12*) desc;
 
-        if (State::Instance().currentSwapchain != nullptr &&
+        if (State::Instance().currentWrappedSwapchain != nullptr &&
             State::Instance().currentSwapchainDesc.OutputWindow == cDesc->desc->OutputWindow)
         {
-            auto refCount = State::Instance().currentSwapchain->Release();
+            auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-            while (refCount > 0 && refCount != 0xffffffff)
+            while (refCount > 0 && refCount < 0xffffff00)
             {
-                refCount = State::Instance().currentSwapchain->Release();
+                refCount = State::Instance().currentWrappedSwapchain->Release();
             }
 
-            State::Instance().currentSwapchain = nullptr;
-            State::Instance().currentFGSwapchain = nullptr;
-            State::Instance().currentSwapchainDesc = {};
+            State::Instance().currentWrappedSwapchain = nullptr;
         }
 
         auto result =
@@ -380,19 +378,17 @@ ffxReturnCode_t ffxCreateContext_Dx12FG(ffxContext* context, ffxCreateContextDes
 
         factory->Release();
 
-        if (State::Instance().currentSwapchain != nullptr &&
+        if (State::Instance().currentWrappedSwapchain != nullptr &&
             State::Instance().currentSwapchainDesc.OutputWindow == cDesc->hwnd)
         {
-            auto refCount = State::Instance().currentSwapchain->Release();
+            auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-            while (refCount > 0 && refCount != 0xffffffff)
+            while (refCount > 0 && refCount < 0xffffff00)
             {
-                refCount = State::Instance().currentSwapchain->Release();
+                refCount = State::Instance().currentWrappedSwapchain->Release();
             }
 
-            State::Instance().currentSwapchain = nullptr;
-            State::Instance().currentFGSwapchain = nullptr;
-            State::Instance().currentSwapchainDesc = {};
+            State::Instance().currentWrappedSwapchain = nullptr;
         }
 
         auto result = factory->CreateSwapChainForHwnd(cDesc->gameQueue, cDesc->hwnd, cDesc->desc, cDesc->fullscreenDesc,
@@ -437,16 +433,17 @@ ffxReturnCode_t ffxDestroyContext_Dx12FG(ffxContext* context, const ffxAllocatio
         LOG_INFO("Destroying Swapchain Context: {:X}", (size_t) State::Instance().currentFG);
         State::Instance().currentFG->ReleaseSwapchain(State::Instance().currentFG->Hwnd());
 
-        if (State::Instance().currentSwapchain != nullptr)
+        if (State::Instance().currentWrappedSwapchain != nullptr &&
+            State::Instance().currentSwapchainDesc.OutputWindow == State::Instance().currentFG->Hwnd())
         {
-            auto refCount = State::Instance().currentSwapchain->Release();
+            auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-            while (refCount > 0 && refCount != 0xffffffff)
+            while (refCount > 0 && refCount < 0xffffff00)
             {
-                refCount = State::Instance().currentSwapchain->Release();
+                refCount = State::Instance().currentWrappedSwapchain->Release();
             }
 
-            State::Instance().currentSwapchain = nullptr;
+            State::Instance().currentWrappedSwapchain = nullptr;
         }
 
         return FFX_API_RETURN_OK;

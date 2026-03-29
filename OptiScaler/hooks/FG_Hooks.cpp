@@ -23,7 +23,6 @@
 inline static ID3D12Fence* resizeFence = nullptr;
 inline static UINT64 resizeFenceValue = 0;
 inline static HANDLE resizeFenceEvent = nullptr;
-inline static bool readyToRelease = false;
 inline static IUnknown* oldSwapChain = nullptr;
 
 #if (XEFG_RESOURCE_REF_LIMIT == 0)
@@ -125,9 +124,9 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
 
         // Looks like game is creating new swapchain,
         // without releasing old one, be sure gpu is in idle state
-        if (readyToRelease && State::Instance().currentFGSwapchain != nullptr)
+        if (State::Instance().currentFGSwapchain != nullptr)
         {
-            LOG_DEBUG("Ready to release: {}", readyToRelease);
+            LOG_WARN("Looks like game is creating new swapchain, without releasing old one!");
 
             if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr &&
                 resizeFenceEvent != nullptr)
@@ -149,7 +148,7 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
             oldSwapChain = State::Instance().currentFGSwapchain;
         }
 
-        scResult = fg->CreateSwapchain(pFactory, cq, pDesc, ppSwapChain, readyToRelease);
+        scResult = fg->CreateSwapchain(pFactory, cq, pDesc, ppSwapChain, true);
 
         if (Config::Instance()->FGDontUseSwapchainBuffers.value_or_default())
             State::Instance().skipHeapCapture = false;
@@ -157,8 +156,6 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
 
     if (scResult)
     {
-        readyToRelease = false;
-
         if (State::Instance().currentD3D12Device != nullptr)
         {
             if (resizeFence != nullptr)
@@ -250,8 +247,10 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
 
         // Looks like game is creating new swapchain,
         // without releasing old one, be sure gpu is in idle state
-        if (readyToRelease && State::Instance().currentFGSwapchain != nullptr)
+        if (State::Instance().currentFGSwapchain != nullptr)
         {
+            LOG_WARN("Looks like game is creating new swapchain, without releasing old one!");
+
             if (State::Instance().currentCommandQueue != nullptr && resizeFence != nullptr &&
                 resizeFenceEvent != nullptr)
             {
@@ -272,7 +271,7 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
             oldSwapChain = State::Instance().currentFGSwapchain;
         }
 
-        scResult = fg->CreateSwapchain1(pFactory, cq, hWnd, pDesc, pFullscreenDesc, ppSwapChain, readyToRelease);
+        scResult = fg->CreateSwapchain1(pFactory, cq, hWnd, pDesc, pFullscreenDesc, ppSwapChain, true);
 
         if (Config::Instance()->FGDontUseSwapchainBuffers.value_or_default())
             State::Instance().skipHeapCapture = false;
@@ -280,8 +279,6 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
 
     if (scResult)
     {
-        readyToRelease = false;
-
         if (State::Instance().currentD3D12Device != nullptr)
         {
             if (resizeFence != nullptr)
@@ -416,16 +413,6 @@ HRESULT FGHooks::hkSetFullscreenState(IDXGISwapChain* This, BOOL Fullscreen, IDX
     {
         result = o_FGSCSetFullscreenState(This, Fullscreen, pTarget);
         LOG_DEBUG("Fullscreen: {}, pTarget: {:X}, Result: {:X}", Fullscreen, (size_t) pTarget, (UINT) result);
-    }
-
-    // Setting Fullscreen to false and pTarget to null
-    // releases internal buffers, so game might create a swapchain
-    // for same hwnd without releasing old one
-    readyToRelease = false;
-    if (result == S_OK && !orgFS && pTarget == NULL)
-    {
-        LOG_DEBUG("Ready to release is set");
-        readyToRelease = true;
     }
 
     if (result == S_OK && modeChanged)
@@ -1236,18 +1223,17 @@ ULONG FGHooks::hkFGRelease(IDXGISwapChain* This)
             LOG_DEBUG("FG Swapchain released, clearing currentFGSwapchain");
             State::Instance().currentFGSwapchain = nullptr;
 
-            if (State::Instance().currentSwapchain != nullptr &&
+            if (State::Instance().currentWrappedSwapchain != nullptr &&
                 State::Instance().currentSwapchainDesc.OutputWindow == _hwnd)
             {
-                auto refCount = State::Instance().currentSwapchain->Release();
+                auto refCount = State::Instance().currentWrappedSwapchain->Release();
 
-                while (refCount > 0 && refCount != 0xffffffff)
+                while (refCount > 0 && refCount < 0xffffff00)
                 {
-                    refCount = State::Instance().currentSwapchain->Release();
+                    refCount = State::Instance().currentWrappedSwapchain->Release();
                 }
 
-                State::Instance().currentSwapchain = nullptr;
-                State::Instance().currentSwapchainDesc = {};
+                State::Instance().currentWrappedSwapchain = nullptr;
             }
 
             skipReleaseChecks = false;
