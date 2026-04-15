@@ -4736,7 +4736,7 @@ bool MenuCommon::RenderMenu()
                             ShowHelpMarker(
                                 "Positive Depth Sharpness Bias sharpens near surfaces more.\n"
                                 "Negative values sharpen near surfaces less, which favors distant detail instead.\n"
-                                "Lower Edge Sensitivity reduces more shimmer but also softens more.")
+                                "Lower Edge Sensitivity reduces more shimmer but also softens more.");
 
                             ImGui::EndDisabled();
 
