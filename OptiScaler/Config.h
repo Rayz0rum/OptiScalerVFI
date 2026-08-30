@@ -306,6 +306,18 @@ class Config
     CustomOptional<float> DlssNrTransferStrength { 1.0f };
     CustomOptional<float> DlssNrColourStrength { 1.0f };
 
+    // How strongly to distrust the model's colour where it desaturated what it was shown.
+    //
+    // The encode normalises luminance but not individual channels, so a bright saturated pixel keeps
+    // a channel above 1.0 in the proxy -- outside anything the model was trained on. It cannot
+    // represent "green, brighter than white", returns near-white, and the highlight branch faithfully
+    // multiplies that whiteness up to the original's luminance. In HDR that turns neon lights white
+    // and washes bright colour out generally.
+    //
+    // 0 is the old behaviour. 1 falls back to a luminance-only edit exactly where the model lost the
+    // chroma it was given. Midtones, and everything in SDR, are untouched either way.
+    CustomOptional<float> DlssNrColourGuard { 1.0f };
+
 
     // The most the pass may multiply or divide a pixel by. A detail pass has no business restyling a
     // light source, whatever the model returns.

@@ -269,6 +269,26 @@ void RenderMenu(Config* config, float menuResScale)
                        "\npictures rather than adding a colour difference to one, which is what used to"
                        "\nlet a warm subject come back green.");
 
+        float guard = config->DlssNrColourGuard.value_or_default();
+        if (ImGui::SliderFloat("Highlight colour guard", &guard, 0.0f, 1.0f, "%.2f"))
+            config->DlssNrColourGuard = guard;
+
+        HelpMarker("Protects saturated highlights from being washed white in HDR."
+                       "\n\nThe encode normalises brightness but not the individual channels, so a very"
+                       "\nbright saturated pixel keeps a channel above 1.0 in the picture the model is"
+                       "\nshown -- outside anything it was trained on. It has no way to represent"
+                       "\n\"green, brighter than white\", so it returns near-white, and the highlight"
+                       "\nbranch then correctly multiplies that whiteness back up to full brightness."
+                       "\nA neon light arrives white."
+                       "\n\nThis compares the colour the model returned against the colour it was given."
+                       "\nWhere they match it was working within its range and its colour is used in"
+                       "\nfull; where it lost the chroma, that pixel falls back to a brightness-only"
+                       "\nedit. Midtones are untouched."
+                       "\n\nSDR is untouched entirely -- an already tone-mapped frame is copied rather"
+                       "\nthan encoded, so nothing ever leaves the model's range and this never fires."
+                       "\n\n0 is the old behaviour. Turn it down if a highlight looks under-coloured"
+                       "\nrather than over-white.");
+
         ImGui::SeparatorText("Model");
 
         ImGui::TextUnformatted("Read when the model is built, so a change rebuilds it after a moment.");

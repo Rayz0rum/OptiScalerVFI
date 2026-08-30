@@ -966,6 +966,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         resolveParams.height = height;
         resolveParams.transferStrength = cfg.DlssNrTransferStrength.value_or_default();
         resolveParams.colourStrength = cfg.DlssNrColourStrength.value_or_default();
+        resolveParams.colourGuard = cfg.DlssNrColourGuard.value_or_default();
         resolveParams.debugView = cfg.DlssNrDebugView.value_or_default();
         resolveParams.maxRatio = cfg.DlssNrMaxRatio.value_or_default();
         resolveParams.passthrough = isHdrBuffer ? 0u : 1u;

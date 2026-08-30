@@ -15,7 +15,21 @@ cbuffer Params : register(b0)
     float gMvScaleY;
     uint  gGuideWidth;   // the motion texture's valid region
     uint  gGuideHeight;
+    // How strongly to distrust the model's colour where it desaturated what it was shown. 0 disables.
+    float gColourGuard;
 };
+
+// How much colour a pixel has, independent of how bright it is: 0 is neutral, 1 fully saturated.
+//
+// Used to ask whether the model kept the chroma it was given. A ratio of two of these is meaningful
+// where a difference of two colours is not, because the proxy and the model sit at different
+// brightnesses by construction.
+float Saturation(float3 c)
+{
+    const float hi = max(c.r, max(c.g, c.b));
+    const float lo = min(c.r, min(c.g, c.b));
+    return hi > 1e-6 ? (hi - lo) / hi : 0.0;
+}
 
 // Colours outside the AP1 gamut are impossible on any display and read as sparkle where a bright
 // saturated pixel is pushed further. Clamping inside AP1 and coming back keeps everything reachable.
@@ -270,7 +284,37 @@ void main(uint3 id : SV_DispatchThreadID)
     // only its light carries the model's verdict; at 1 the model's colour arrives as well.
     float upgradedLuma = dot(upgraded, kLuma);
     float lumaRatio = originalLuma > 1e-6 ? clamp(upgradedLuma / originalLuma, 0.0, gMaxRatio) : 1.0;
-    float3 result = lerp(original * lumaRatio, upgraded, gColourStrength);
+
+    /*
+     * Where the model desaturated what it was shown, its colour is not an opinion worth taking.
+     *
+     * The encode normalises luminance but not the individual channels, so a bright saturated pixel
+     * keeps a channel above 1.0 in the proxy -- outside anything the model was trained on. It has no
+     * way to represent "green, brighter than white", so it returns near-white there. The highlight
+     * branch above then does its job correctly and multiplies that whiteness up to the original's
+     * luminance, and a neon light arrives white at full brightness.
+     *
+     * This cannot happen in the passthrough path: an already tone-mapped frame is copied rather than
+     * encoded, so the proxy is the original and nothing ever leaves the model's range. It is an HDR
+     * failure specifically, which is exactly where it was found.
+     *
+     * The test is local and needs no threshold: compare the chroma the model returned against the
+     * chroma it was given. Equal means it was working within its range and its colour is trustworthy;
+     * far below means it clipped, and the frame falls back to a luminance-only edit for that pixel.
+     * Midtones, and every pixel in SDR, are untouched.
+     */
+    float colourStrength = gColourStrength;
+
+    if (gColourGuard > 0.0 && gPassthrough == 0)
+    {
+        const float proxySat = Saturation(proxy);
+        const float modelSat = Saturation(model);
+        const float kept = proxySat > 1e-4 ? saturate(modelSat / proxySat) : 1.0;
+
+        colourStrength *= lerp(1.0, kept, saturate(gColourGuard));
+    }
+
+    float3 result = lerp(original * lumaRatio, upgraded, colourStrength);
 
     // Back out of the normalised space the composition worked in.
     result *= normScale;
