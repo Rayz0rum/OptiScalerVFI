@@ -11,6 +11,7 @@
 #include "upscalers/FeatureProvider_Vk.h"
 
 #include <upscaler_time/UpscalerTime_Vk.h>
+#include <dlssnr/DlssNr.h>
 
 #include <vulkan/vulkan.hpp>
 #include <ankerl/unordered_dense.h>
@@ -1066,6 +1067,14 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
     UpscalerTimeVk::UpscaleStart(InCmdList);
 
     auto upscaleResult = deviceContext->Evaluate(InCmdList, InParameters);
+
+#if OPTI_DLSSNR
+    // The pass runs on the game's own command buffer, straight after the upscaler has written its
+    // output and before the interface is drawn. The instance, physical device and device are the ones
+    // the game initialised NGX with -- the model's feature is only valid against those.
+    if (upscaleResult)
+        DlssNr::EvaluateAfterUpscaleVk(InCmdList, InParameters, vkInstance, vkPD, vkDevice);
+#endif
 
     if (!upscaleResult)
         ImGui::InsertNotification({ ImGuiToastType::Error, 10000, "Upscaler failed to run!" });

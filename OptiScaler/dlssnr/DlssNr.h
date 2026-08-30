@@ -17,4 +17,5 @@
 #if OPTI_DLSSNR
 #include "DlssNr_Dx11.h"
 #include "DlssNr_Dx12.h"
+#include "DlssNr_Vk.h"
 #endif

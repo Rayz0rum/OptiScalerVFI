@@ -11,15 +11,20 @@
 
 namespace
 {
-// A process runs one backend or the other -- a D3D11 game never reaches the D3D12 path and vice
-// versa -- so the panel asks both and reports whichever answered. Without this the D3D11 route works
-// while the menu insists nothing is running, which reads as a bug in the pass rather than in the menu.
-bool AnyRunning() { return DlssNr::IsRunning() || DlssNr::IsRunningDx11(); }
+// A process runs one backend, never several -- a D3D11 game never reaches the D3D12 path, and a
+// Vulkan one reaches neither -- so the panel asks all three and reports whichever answered. Without
+// this the D3D11 and Vulkan routes work while the menu insists nothing is running, which reads as a
+// bug in the pass rather than in the menu.
+bool AnyRunning() { return DlssNr::IsRunning() || DlssNr::IsRunningDx11() || DlssNr::IsRunningVk(); }
 
 const char* AnyFailureReason()
 {
     const char* reason = DlssNr::FailureReason();
-    return reason[0] != 0 ? reason : DlssNr::FailureReasonDx11();
+    if (reason[0] != 0)
+        return reason;
+
+    reason = DlssNr::FailureReasonDx11();
+    return reason[0] != 0 ? reason : DlssNr::FailureReasonVk();
 }
 
 std::optional<double> AnyGpuTime()
@@ -32,6 +37,7 @@ void RetryAll()
 {
     DlssNr::RetryAfterFailure();
     DlssNr::RetryAfterFailureDx11();
+    DlssNr::RetryAfterFailureVk();
 }
 } // namespace
 
