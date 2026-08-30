@@ -164,27 +164,31 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nmismatch falls back to post-process rather than half-applying the"
                                "\narrangement, and says so in the log.");
 
-                static const char* jitterNames[] = { "Zero (Recommended)", "Forward the game's offsets" };
+                static const char* jitterNames[] = { "Resolved frame, zero jitter (old)",
+                                                     "Transfer the edit onto the jittered frame (Recommended)" };
                 int jitterMode = (int) config->DlssNrMultiPassJitter.value_or_default();
 
-                if (ImGui::Combo("Final pass jitter", &jitterMode, jitterNames, IM_ARRAYSIZE(jitterNames)))
+                if (ImGui::Combo("DLSS enlargement input", &jitterMode, jitterNames, IM_ARRAYSIZE(jitterNames)))
                     config->DlssNrMultiPassJitter = (uint32_t) jitterMode;
 
-                HelpMarker("What the last Super Resolution pass is told about jitter."
-                               "\n\nThe first pass ran at 1:1 with the game's sequence and resolved it, so"
-                               "\nwhat reaches the last pass is grid-aligned. A per-frame offset then"
-                               "\ndescribes a subpixel displacement the image no longer has, and"
-                               "\nreprojecting against it shimmers at the period of the jitter sequence --"
-                               "\nwhich is the thing the first pass existed to remove."
-                               "\n\nRead every frame, so the two can be compared without a restart. The"
-                               "\ngame's own render jitter is untouched either way; only what the last"
-                               "\npass is told changes."
-                               "\n\nIf the game declares its motion vectors jittered, this is ignored and"
-                               "\nthe real offsets are forwarded regardless: DLSS cancels the baked offset"
-                               "\nusing these values, and zeroing them would leave it uncancelled, which"
-                               "\nis worse. The log says when that happened.");
+                HelpMarker("What the DLSS enlargement is fed, when Enlargement is set to DLSS."
+                               "\n\nThe first pass resolves the game's jitter, so its output is"
+                               "\ngrid-aligned. Handing that straight to a temporal upscaler leaves it"
+                               "\nnothing to reconstruct from -- soft, and warping when the camera moves,"
+                               "\nbecause a constant zero offset is not what its history logic expects."
+                               "\n\nTransfer measures how much brighter or darker the model made each"
+                               "\npixel and applies that to the game's ORIGINAL jittered frame, which"
+                               "\nstill has its full subpixel content. The enlargement then gets a"
+                               "\nproperly jittered image carrying the model's work, and the real jitter"
+                               "\noffsets to interpret it by."
+                               "\n\nA brightness ratio, not a per-channel one: the edit is a brightness"
+                               "\ndecision, and applying it per channel would drag the jittered frame's"
+                               "\nhue toward the resolved frame's."
+                               "\n\nRead every frame, so the two can be compared without a restart. If the"
+                               "\ngame declares its motion vectors jittered, the real offsets are"
+                               "\nforwarded regardless; the log says when.");
 
-                static const char* enlargeNames[] = { "DLSS Super Resolution", "Spatial (Recommended)" };
+                static const char* enlargeNames[] = { "DLSS Super Resolution (Recommended)", "Spatial (safe fallback)" };
                 int enlarge = (int) config->DlssNrMultiPassEnlarge.value_or_default();
 
                 if (ImGui::Combo("Enlargement", &enlarge, enlargeNames, IM_ARRAYSIZE(enlargeNames)))

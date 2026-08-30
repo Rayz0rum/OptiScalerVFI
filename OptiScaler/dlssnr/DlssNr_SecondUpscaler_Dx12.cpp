@@ -65,6 +65,48 @@ bool DlssNr_SecondUpscaler_Dx12::CreateInputBuffer(ID3D12Resource* reference, ui
     return true;
 }
 
+
+bool DlssNr_SecondUpscaler_Dx12::CreateEditBuffers(ID3D12Resource* reference, uint32_t renderWidth,
+                                                   uint32_t renderHeight)
+{
+    if (_device == nullptr || reference == nullptr || renderWidth == 0 || renderHeight == 0)
+        return false;
+
+    for (auto** slot : { &_editBefore, &_editResult })
+    {
+        if (*slot != nullptr)
+        {
+            auto existing = (*slot)->GetDesc();
+
+            if (existing.Width == renderWidth && existing.Height == renderHeight)
+                continue;
+
+            (*slot)->Release();
+            *slot = nullptr;
+        }
+
+        auto desc = reference->GetDesc();
+        desc.Width = renderWidth;
+        desc.Height = renderHeight;
+        desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+        D3D12_HEAP_PROPERTIES heapProperties;
+        D3D12_HEAP_FLAGS heapFlags;
+
+        if (reference->GetHeapProperties(&heapProperties, &heapFlags) != S_OK)
+            return false;
+
+        if (_device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &desc,
+                                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                             IID_PPV_ARGS(slot)) != S_OK)
+        {
+            *slot = nullptr;
+            return false;
+        }
+    }
+
+    return true;
+}
 void DlssNr_SecondUpscaler_Dx12::SetInputBufferState(ID3D12GraphicsCommandList* cmdList, D3D12_RESOURCE_STATES state)
 {
     if (_inputBuffer == nullptr || cmdList == nullptr || _inputBufferState == state)
@@ -83,7 +125,7 @@ void DlssNr_SecondUpscaler_Dx12::SetInputBufferState(ID3D12GraphicsCommandList* 
 
 void DlssNr_SecondUpscaler_Dx12::Release()
 {
-    for (auto** res : { &_inputBuffer, &_exposure, &_exposureUpload })
+    for (auto** res : { &_inputBuffer, &_editBefore, &_editResult, &_exposure, &_exposureUpload })
     {
         if (*res != nullptr)
         {

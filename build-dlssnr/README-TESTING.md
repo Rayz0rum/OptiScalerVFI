@@ -31,18 +31,28 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
-**Multi-pass now enlarges spatially by default.** The softness and the warping had one cause, and it
-is a property of the arrangement rather than a bug in it: the first pass resolves the game's jitter —
-that is what DLAA and Ray Reconstruction are *for* — so what reaches the enlargement is grid-aligned
-with no subpixel variation left. A second temporal pass then reconstructs from one sample position
-per pixel, identical every frame, while the model re-decides detail underneath it. Chaining two
-temporal passes cannot preserve jitter for the second one.
+**Multi-pass with DLSS should now be sharp and steady.** The softness and the warping had one cause:
+the first pass resolves the game's jitter, so handing its output straight to a temporal upscaler
+leaves that upscaler nothing to reconstruct from — one sample position per pixel, identical every
+frame.
 
-Confirmed by observation: the failure scales with the enlargement ratio and disappears at 1:1.
-Multi-pass at native/DLAA sits at the same ghosting level as post-process, because with nothing to
-enlarge there is nothing for the missing jitter to cost. Note that is *parity* with post-process, not
-the absence of ghosting — whatever baseline the two share comes from earlier in the chain, and
-`ResetEveryFrame` is how to find out whether that somewhere is the model's own history.
+The fix does not hand it that image. The model's edit is *measured* on the resolved frame — how much
+brighter or darker it made each pixel — and that ratio is applied to the game's **original jittered
+frame**, which still carries its full subpixel sampling. The enlargement then gets a properly jittered
+image with the model's work riding on it, plus the real jitter offsets to interpret it by. It behaves
+like a normal DLSS upscale that happens to be carrying NR's enhancement.
+
+A brightness ratio, not a per-channel one: the edit is a brightness decision, and applying it per
+channel would drag the jittered frame's hue toward the resolved frame's.
+
+The first pass still does its job — the model works on a clean, antialiased frame — and the render-side
+jitter is untouched throughout.
+
+- **DLSS enlargement input** — Transfer (default) or the old resolved-frame-with-zero-jitter, for a
+  direct A/B. Read per frame, so no restart.
+- **Enlargement** — DLSS (default) or the spatial filter. Spatial asks for no jitter and keeps no
+  history, so neither failure is available to it, but it is bounded by what the first pass produced
+  and cannot reconstruct past it. It is the fallback if the DLSS path misbehaves.
 
 **Enlargement** (Placement section, `MultiPassEnlarge` in the ini) selects between the spatial filter
 and the second DLSS pass. Spatial is no sharper — both are limited to what the first pass produced —

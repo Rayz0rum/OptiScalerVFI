@@ -1046,6 +1046,48 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     device->Release();
 }
 
+
+void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
+                              ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
+                              unsigned int width, unsigned int height)
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+
+    if (cmdList == nullptr || before == nullptr || after == nullptr || jittered == nullptr ||
+        target == nullptr || width == 0 || height == 0)
+        return;
+
+    ID3D12Device* device = nullptr;
+
+    if (FAILED(target->GetDevice(IID_PPV_ARGS(&device))) || device == nullptr)
+        return;
+
+    if (!g_codec.ensure(device))
+    {
+        device->Release();
+        return;
+    }
+
+    codec::Params params {};
+    params.mode = codec::MODE_TRANSFER;
+    params.width = width;
+    params.height = height;
+    params.maxRatio = Config::Instance()->DlssNrMaxRatio.value_or_default();
+
+    Barrier(cmdList, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Barrier(cmdList, after, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+    g_codec.dispatch(cmdList, params, before, after, jittered, target, nullptr);
+
+    Barrier(cmdList, before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Barrier(cmdList, after, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    device->Release();
+}
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
 
 const char* FailureReason() { return g_nr.failed ? g_nr.reason : ""; }

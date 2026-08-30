@@ -77,6 +77,15 @@ class DlssNr_SecondUpscaler_Dx12
      */
     bool CreateInputBuffer(ID3D12Resource* reference, uint32_t renderWidth, uint32_t renderHeight);
 
+    /*
+     * The pair the edit transfer needs: a copy of what the model was shown, and somewhere to put the
+     * jittered frame once the edit has been carried onto it. Allocated only when that path is used.
+     */
+    bool CreateEditBuffers(ID3D12Resource* reference, uint32_t renderWidth, uint32_t renderHeight);
+
+    ID3D12Resource* EditBefore() { return _editBefore; }
+    ID3D12Resource* EditResult() { return _editResult; }
+
     ID3D12Resource* InputBuffer() { return _inputBuffer; }
 
     void SetInputBufferState(ID3D12GraphicsCommandList* cmdList, D3D12_RESOURCE_STATES state);
@@ -141,6 +150,8 @@ class DlssNr_SecondUpscaler_Dx12
     bool _exposureUploaded = false;
 
     ID3D12Resource* _inputBuffer = nullptr;
+    ID3D12Resource* _editBefore = nullptr;
+    ID3D12Resource* _editResult = nullptr;
     D3D12_RESOURCE_STATES _inputBufferState = D3D12_RESOURCE_STATE_COMMON;
 
     // Its own timer. An existing row named after the first feature would not

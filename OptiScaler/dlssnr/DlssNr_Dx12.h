@@ -53,6 +53,22 @@ void RetryAfterFailure();
 
 
 // Whether the model is loaded and running, for the overlay.
+
+/*
+ * Carries the model's edit from a resolved image onto the game's jittered one.
+ *
+ * The multi-pass chain's way of ending in a real Super Resolution pass. The first pass resolves the
+ * game's jitter so the model sees a clean frame, and that resolve is exactly what would leave the
+ * enlargement with no subpixel content to reconstruct from. Measuring the edit here and applying it to
+ * the still-jittered frame gives the enlargement both: the model's enhancement, and the game's own
+ * subpixel sampling with the real jitter offsets to interpret it by.
+ *
+ * `before` is what the model was shown, `after` what it returned, `jittered` the game's own frame, and
+ * `target` receives the jittered frame carrying the edit. All four are at render resolution.
+ */
+void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
+                              ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
+                              unsigned int width, unsigned int height);
 bool IsRunning();
 
 // Why it is not, if it is not. Empty while it is running or has not been tried yet.

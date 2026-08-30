@@ -288,20 +288,22 @@ class Config
     // shipping DLSS preset would hand it, and nothing downstream can invent what was discarded.
     CustomOptional<int> DlssNrFeature1Scale { 0 };
 
-    // What jitter the final Super Resolution pass in a multi-pass chain is given.
+    // How the DLSS enlargement in a multi-pass chain is fed, and what jitter it is told about.
     //
-    // 0 zero offsets, 1 the game's real offsets. Zero is right in the ordinary case: the first pass
-    // resolved the game's sequence, so its output is grid-aligned and a per-frame Halton offset
-    // describes a subpixel displacement the image no longer has. Reprojecting against it shimmers with
-    // the period of the jitter sequence -- precisely what the first pass was there to remove.
+    // 1 (default) carries the model's edit onto the game's own jittered frame and forwards the real
+    // offsets. The enlargement then has genuine subpixel content to reconstruct from, which is what a
+    // temporal upscaler needs and what the first pass's resolve would otherwise have taken away.
+    //
+    // 0 feeds it the resolved frame directly with zero offsets -- what this did before. Kept for
+    // comparison: it is soft, because there is no subpixel variation left to reconstruct, and it warps,
+    // because a constant zero offset is not what the algorithm's history logic expects.
     //
     // Read per frame rather than latched, so the two can be compared without a restart.
     //
-    // It does not get the final say. When the game declares MVJittered the vectors carry a baked
-    // offset that DLSS cancels using these values, and zeroing them leaves the offset uncancelled --
-    // a full jitter offset every frame, worse than the bounded sample-placement error taken instead.
+    // Ignored where the game declares MVJittered: the vectors then carry a baked offset that DLSS
+    // cancels using these values, so zeroing them leaves a full offset uncancelled every frame.
     // See IFeature::NRFinalPassForwardsJitter.
-    CustomOptional<uint32_t> DlssNrMultiPassJitter { 0 };
+    CustomOptional<uint32_t> DlssNrMultiPassJitter { 1 };
 
     // How the multi-pass chain performs its enlargement.
     //
@@ -319,7 +321,7 @@ class Config
     //
     // The temporal option is kept because it is what the arrangement was originally specified as, and
     // a title whose first pass leaves more for it to work with may yet prefer it.
-    CustomOptional<uint32_t> DlssNrMultiPassEnlarge { 1 };
+    CustomOptional<uint32_t> DlssNrMultiPassEnlarge { 0 };
 
     // Forces DLSSNR.Reset every frame, as a diagnostic.
     //

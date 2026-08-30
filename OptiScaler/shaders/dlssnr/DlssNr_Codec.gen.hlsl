@@ -165,6 +165,50 @@ void main(uint3 id : SV_DispatchThreadID)
     // Normalised, so the source may be any size relative to this dispatch.
     float2 uv = (float2(id.xy) + 0.5) / float2(gWidth, gHeight);
 
+    /*
+     * Mode 3 -- carry the model's edit from the resolved image onto the jittered one.
+     *
+     * This is what lets the multi-pass chain end in a real Super Resolution pass. The first pass
+     * resolves the game's jitter so the model can work on a clean, antialiased frame, but that same
+     * resolve is what leaves the enlargement with no subpixel variation to reconstruct from. Handing
+     * the enlargement the resolved frame therefore costs it everything DLSS is good at.
+     *
+     * So the edit is measured here rather than delivered here: how much brighter or darker the model
+     * made each pixel, as a ratio against what it was shown. That ratio is then applied to the game's
+     * ORIGINAL jittered frame, which still carries its full subpixel content. The enlargement gets a
+     * properly jittered image with the model's enhancement riding on it, and the game's real jitter
+     * offsets to go with it.
+     *
+     * A luminance ratio, not a per-channel one. The edit is a brightness decision -- that is what the
+     * composition established -- and applying it per channel would drag the jittered frame's hue
+     * toward the resolved frame's, which is not a transfer of anything, just a second colour pass.
+     *
+     * gSource   what the model was shown  (the first pass's resolved output)
+     * gModel    what it returned          (the same image, enhanced)
+     * gOriginal the game's jittered frame (what the enlargement should actually see)
+     */
+    if (gMode == 3)
+    {
+        const float3 before = Sanitize(gSource.Load(int3(id.xy, 0)).rgb);
+        const float3 after = Sanitize(gModel.Load(int3(id.xy, 0)).rgb);
+        const float4 jittered = gOriginal.Load(int3(id.xy, 0));
+
+        const float beforeLuma = dot(before, kLuma);
+        const float afterLuma = dot(after, kLuma);
+
+        /*
+         * Below the noise floor the ratio is meaningless -- a pixel the first pass resolved to almost
+         * nothing divides into anything at all -- so those are passed through rather than amplified.
+         */
+        float ratio = 1.0;
+
+        if (beforeLuma > 1e-4)
+            ratio = clamp(afterLuma / beforeLuma, 1.0 / max(gMaxRatio, 1.0), gMaxRatio);
+
+        gTarget[id.xy] = float4(Sanitize(jittered.rgb) * ratio, jittered.a);
+        return;
+    }
+
     if (gMode == 2)
     {
         gTarget[id.xy] = gSource.SampleLevel(gLinear, uv, 0);

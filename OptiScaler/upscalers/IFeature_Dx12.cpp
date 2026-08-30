@@ -22,6 +22,39 @@ void IFeature_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID
     InCommandList->ResourceBarrier(1, &barrier);
 }
 
+
+/*
+ * Copies the render rect of one resource into another of the same size.
+ *
+ * Used to keep what the model was shown before it writes over it; the edit transfer needs both ends.
+ */
+static void CopyRenderRect(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* src, ID3D12Resource* dst)
+{
+    if (cmdList == nullptr || src == nullptr || dst == nullptr)
+        return;
+
+    D3D12_RESOURCE_BARRIER barriers[2] = {};
+
+    for (int i = 0; i < 2; ++i)
+    {
+        barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[i].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[i].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    }
+
+    barriers[0].Transition.pResource = src;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    barriers[1].Transition.pResource = dst;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    cmdList->ResourceBarrier(2, barriers);
+
+    cmdList->CopyResource(dst, src);
+
+    for (int i = 0; i < 2; ++i)
+        std::swap(barriers[i].Transition.StateBefore, barriers[i].Transition.StateAfter);
+
+    cmdList->ResourceBarrier(2, barriers);
+}
 bool IFeature_Dx12::Init(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCommandList,
                          NVSDK_NGX_Parameter* InParameters)
 {
@@ -199,7 +232,20 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   if (paramDepth == nullptr || paramMotion == nullptr)
                       return true;
 
-                  // The model, at render resolution, on what the first pass produced.
+                  /*
+                   * The model, at render resolution, on what the first pass produced.
+                   *
+                   * A copy is taken first when the edit is going to be transferred: the transfer needs
+                   * both what the model was shown and what it returned, and the model writes over its
+                   * input.
+                   */
+                  const bool transferEdit =
+                      !spatialEnlarge && Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
+                      SecondUpscaler->CreateEditBuffers(input, NRSourceWidth(), NRSourceHeight());
+
+                  if (transferEdit)
+                      CopyRenderRect(InCommandList, input, SecondUpscaler->EditBefore());
+
                   DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, NRSourceWidth(),
                                                NRSourceHeight());
 
@@ -209,6 +255,27 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                                                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                       return MultiPassScaler->Dispatch(InCommandList, input, output);
                   }
+
+                  /*
+                   * Carry the edit onto the game's own jittered frame, so the enlargement gets real
+                   * subpixel content to reconstruct from instead of a resolved image with none.
+                   */
+                  ID3D12Resource* enlargeSource = input;
+
+                  if (transferEdit)
+                  {
+                      ID3D12Resource* paramColor = nullptr;
+                      InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
+
+                      if (paramColor != nullptr)
+                      {
+                          DlssNr::TransferEditOntoJittered(InCommandList, SecondUpscaler->EditBefore(),
+                                                           input, paramColor, SecondUpscaler->EditResult(),
+                                                           NRSourceWidth(), NRSourceHeight());
+                          enlargeSource = SecondUpscaler->EditResult();
+                      }
+                  }
+
 
 
                   if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
@@ -245,7 +312,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                       InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
                   }
 
-                  return SecondUpscaler->Evaluate(InCommandList, input, output, paramDepth, paramMotion,
+                  return SecondUpscaler->Evaluate(InCommandList, enlargeSource, output, paramDepth, paramMotion,
                                                   nullptr, jitterX, jitterY, mvScaleX, mvScaleY,
                                                   SecondUpscaler->ConsumeResetFlag());
               } });
