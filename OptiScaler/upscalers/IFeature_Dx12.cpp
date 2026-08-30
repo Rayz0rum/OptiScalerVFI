@@ -169,7 +169,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
                   if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
                                                      DisplayWidth(), DisplayHeight(),
-                                                     (int) PerfQualityValue(), DepthInverted(), JitteredMV()))
+                                                     (int) PerfQualityValue(), DepthInverted(), JitteredMV(),
+                                                     LowResMV()))
                   {
                       // Without the enlargement the frame would be a render-resolution
                       // image in the corner of a display-resolution buffer, so the mode

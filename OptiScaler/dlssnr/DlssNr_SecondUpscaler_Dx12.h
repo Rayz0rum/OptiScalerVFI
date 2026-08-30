@@ -57,7 +57,7 @@ class DlssNr_SecondUpscaler_Dx12
      */
     bool EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth, uint32_t renderHeight,
                        uint32_t displayWidth, uint32_t displayHeight, int perfQuality, bool depthInverted,
-                       bool jitteredMV);
+                       bool jitteredMV, bool lowResMV);
 
     /*
      * Run the upscale. `exposure` is the 1x1 identity texture: this feature is
@@ -123,6 +123,7 @@ class DlssNr_SecondUpscaler_Dx12
     int _perfQuality = -1;
     bool _depthInverted = false;
     bool _jitteredMV = false;
+    bool _lowResMV = false;
 
     bool _createFailed = false;
     bool _needsReset = true;

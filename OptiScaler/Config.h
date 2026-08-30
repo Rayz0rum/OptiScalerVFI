@@ -302,6 +302,18 @@ class Config
     // a full jitter offset every frame, worse than the bounded sample-placement error taken instead.
     // See IFeature::NRFinalPassForwardsJitter.
     CustomOptional<uint32_t> DlssNrMultiPassJitter { 0 };
+
+    // Forces DLSSNR.Reset every frame, as a diagnostic.
+    //
+    // The model takes motion vectors and a Reset, and neither means anything to a pass without
+    // internal history -- so it almost certainly accumulates. This is the experiment that settles it:
+    // resetting every frame denies it any history at all. If stability changes, it had some.
+    //
+    // Worth having because of what it implies for the RT path. Ray Reconstruction is already a
+    // temporal accumulator doing denoising history on top of upscaling, so RR -> NR -> SR is three
+    // independent history-rejection stages in series, and on a single disocclusion those rejections
+    // compound. That is a larger effect than any jitter parameter.
+    CustomOptional<bool> DlssNrResetEveryFrame { false };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
     CustomOptional<int> DlssNrToggleKey { UnboundKey };

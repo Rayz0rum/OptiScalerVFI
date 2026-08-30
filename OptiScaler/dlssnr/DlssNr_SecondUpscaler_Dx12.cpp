@@ -119,7 +119,8 @@ void DlssNr_SecondUpscaler_Dx12::Release()
 
 bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth,
                                            uint32_t renderHeight, uint32_t displayWidth, uint32_t displayHeight,
-                                           int perfQuality, bool depthInverted, bool jitteredMV)
+                                           int perfQuality, bool depthInverted, bool jitteredMV,
+                                           bool lowResMV)
 {
     if (_createFailed || cmdList == nullptr || renderWidth == 0 || displayWidth == 0)
         return false;
@@ -127,7 +128,7 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     bool geometryMatches = _handle != nullptr && _renderWidth == renderWidth && _renderHeight == renderHeight &&
                            _displayWidth == displayWidth && _displayHeight == displayHeight &&
                            _perfQuality == perfQuality && _depthInverted == depthInverted &&
-                           _jitteredMV == jitteredMV;
+                           _jitteredMV == jitteredMV && _lowResMV == lowResMV;
 
     if (geometryMatches)
         return true;
@@ -161,7 +162,21 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
      * toward black, and clearing it while supplying nothing leaves it with no
      * exposure source at all, which is also black.
      */
-    int flags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+    /*
+     * Forwarded from what the game declared, never assumed.
+     *
+     * This flag was hardcoded on, which is wrong for any title that supplies display-resolution
+     * motion vectors -- Borderlands 4 reports LowResMV false. DLSS then reads a display-sized vector
+     * field as though it were render-sized, and reprojects history by a factor that grows with
+     * distance from the origin: the whole frame smears radially the moment the camera moves.
+     *
+     * The first pass gets the game's flags untouched, so the two passes now agree about what the
+     * vectors they share actually are.
+     */
+    int flags = 0;
+
+    if (lowResMV)
+        flags |= NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
 
     if (depthInverted)
         flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
@@ -197,10 +212,14 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     _perfQuality = perfQuality;
     _depthInverted = depthInverted;
     _jitteredMV = jitteredMV;
+    _lowResMV = lowResMV;
     _needsReset = true;
 
-    LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure", _name, renderWidth, renderHeight,
-             displayWidth, displayHeight);
+    LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure, motion vectors at {} (as "
+             "the game declared them), depth {}, vectors {}",
+             _name, renderWidth, renderHeight, displayWidth, displayHeight,
+             lowResMV ? "render resolution" : "display resolution", depthInverted ? "inverted" : "normal",
+             jitteredMV ? "jittered" : "not jittered");
 
     return true;
 }

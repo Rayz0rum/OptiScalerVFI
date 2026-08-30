@@ -76,6 +76,28 @@ float Saturation(float3 c)
     return hi > 1e-6 ? (hi - lo) / hi : 0.0;
 }
 
+// Values the arithmetic below cannot reason about, bounded.
+//
+// A game's scene colour is an open-ended linear buffer, and a sun can arrive in it as infinity --
+// R11G11B10_FLOAT, which is what Borderlands 4 hands its upscaler, represents Inf perfectly well. The
+// normalisation below then computes rolled / displayLuma as 1 / Inf, which is zero, and multiplies
+// that back into an infinite channel. Inf * 0 is NaN. The model is handed the NaN and what comes back
+// is a block of garbage where the sun was.
+//
+// It matters more in the reordered arrangements than in post-process: those work on the game's own
+// scene colour, where the sun is still at full intensity, rather than on an upscaler's output.
+//
+// A comparison rather than isfinite(): a NaN fails every comparison, so this replaces it with zero in
+// the same expression that bounds an infinity, and behaves identically on cs_5_0 and cs_6_0.
+static const float kSceneCeiling = 65504.0; // the largest finite half, which is what these buffers hold
+
+float SanitizeChannel(float v) { return (v > 0.0) ? min(v, kSceneCeiling) : 0.0; }
+
+float3 Sanitize(float3 c)
+{
+    return float3(SanitizeChannel(c.r), SanitizeChannel(c.g), SanitizeChannel(c.b));
+}
+
 // Colours outside the AP1 gamut are impossible on any display and read as sparkle where a bright
 // saturated pixel is pushed further. Clamping inside AP1 and coming back keeps everything reachable.
 float3 ClampAp1(float3 color)
@@ -197,7 +219,7 @@ void main(uint3 id : SV_DispatchThreadID)
     if (gMode == 0)
     {
         float4 source = gSource.Load(int3(id.xy, 0));
-        float3 frame = max(source.rgb, float3(0.0, 0.0, 0.0));
+        float3 frame = Sanitize(source.rgb);
 
         // Kept so the resolve has the frame as it was, rather than having to reconstruct it.
         gKeep[id.xy] = float4(frame, source.a);
@@ -243,8 +265,8 @@ void main(uint3 id : SV_DispatchThreadID)
     float4 modelSample = gModel.SampleLevel(gLinear, uv, 0);
 
     // Nothing was encoded on the way in, so nothing is decoded here either.
-    float3 proxy = gPassthrough != 0 ? proxySample.rgb : SrgbToLinear(proxySample.rgb);
-    float3 model = gPassthrough != 0 ? modelSample.rgb : SrgbToLinear(modelSample.rgb);
+    float3 proxy = Sanitize(gPassthrough != 0 ? proxySample.rgb : SrgbToLinear(proxySample.rgb));
+    float3 model = Sanitize(gPassthrough != 0 ? modelSample.rgb : SrgbToLinear(modelSample.rgb));
     float4 originalSample = gOriginal.Load(int3(id.xy, 0));
 
     // All three pictures have to share a scale before their luminances can be compared. The proxy and
@@ -255,7 +277,7 @@ void main(uint3 id : SV_DispatchThreadID)
     // the result to a near-constant scale. Colour still moves, because that comes from the model's
     // own hue, which is what makes the failure so confusing to look at.
     const float normScale = gPassthrough != 0 ? 1.0 : max(gWhitePoint, 1e-4);
-    float3 original = originalSample.rgb / normScale;
+    float3 original = Sanitize(originalSample.rgb) / normScale;
 
     float originalLuma = dot(original, kLuma);
     float proxyLuma = dot(proxy, kLuma);
