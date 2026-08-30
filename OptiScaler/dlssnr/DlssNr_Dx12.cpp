@@ -74,6 +74,11 @@ struct NrState
     ID3D12Resource* depthClone = nullptr;
     ID3D12Resource* motionClone = nullptr;
 
+    // The first pass's resampled inputs, in Multi-pass Custom only.
+    ID3D12Resource* f1Color = nullptr;
+    ID3D12Resource* f1Depth = nullptr;
+    ID3D12Resource* f1Mvec = nullptr;
+
     unsigned int width = 0;
     unsigned int height = 0;
     bool reset = true;
@@ -1088,6 +1093,147 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
 
     device->Release();
 }
+
+/*
+ * Resample the first pass's inputs down to the size it is being run at.
+ *
+ * Multi-pass Custom lowers that pass below the game's render resolution. Without this the game's
+ * buffers are handed over unchanged while the feature is told they are smaller, and DLSS reads the
+ * top-left corner of each -- a crop, not a reduction. The frame becomes a magnified corner of itself.
+ *
+ * Colour and motion vectors are filtered; depth is point-sampled, because a bilinear tap straddling a
+ * silhouette returns a distance where no surface is and the upscaler then reprojects against geometry
+ * that does not exist.
+ *
+ * The motion vector scale follows the reduction. The vectors still describe the same movement, but
+ * they are attached to a smaller image now, so leaving the scale alone over-reprojects by exactly the
+ * ratio. The subrect dimensions are updated for the same reason: the pass genuinely works over the
+ * whole of these smaller buffers.
+ */
+bool ResampleFeature1Inputs(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                            unsigned int srcWidth, unsigned int srcHeight, unsigned int dstWidth,
+                            unsigned int dstHeight)
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+
+    if (cmdList == nullptr || params == nullptr || dstWidth == 0 || dstHeight == 0 || srcWidth == 0 ||
+        srcHeight == 0)
+        return false;
+
+    // Nothing to do when the first pass already runs at the game's resolution.
+    if (dstWidth == srcWidth && dstHeight == srcHeight)
+        return true;
+
+    ID3D12Resource* srcColor = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
+    ID3D12Resource* srcDepth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
+    ID3D12Resource* srcMvec = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
+
+    if (srcColor == nullptr || srcDepth == nullptr || srcMvec == nullptr)
+        return false;
+
+    ID3D12Device* device = nullptr;
+
+    if (FAILED(srcColor->GetDevice(IID_PPV_ARGS(&device))) || device == nullptr)
+        return false;
+
+    if (!g_codec.ensure(device))
+    {
+        device->Release();
+        return false;
+    }
+
+    struct Job
+    {
+        ID3D12Resource* src;
+        ID3D12Resource** dst;
+        unsigned int mode;
+        const char* key;
+    };
+
+    const Job jobs[] = {
+        { srcColor, &g_nr.f1Color, codec::MODE_DOWNSAMPLE, NVSDK_NGX_Parameter_Color },
+        { srcDepth, &g_nr.f1Depth, codec::MODE_POINT_DOWN, NVSDK_NGX_Parameter_Depth },
+        { srcMvec, &g_nr.f1Mvec, codec::MODE_DOWNSAMPLE, NVSDK_NGX_Parameter_MotionVectors },
+    };
+
+    for (const auto& job : jobs)
+    {
+        if (*job.dst != nullptr)
+        {
+            const auto have = (*job.dst)->GetDesc();
+            const auto want = job.src->GetDesc();
+
+            if (have.Width != dstWidth || have.Height != dstHeight || have.Format != want.Format)
+            {
+                ParkNrResource(*job.dst);
+                *job.dst = nullptr;
+            }
+        }
+
+        if (*job.dst == nullptr)
+        {
+            auto desc = job.src->GetDesc();
+            desc.Width = dstWidth;
+            desc.Height = dstHeight;
+            desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            // The source may carry a depth-stencil or render-target flag this copy has no use for,
+            // and some of those forbid the plain typed format the view needs.
+            desc.Flags &= ~(D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+
+            D3D12_HEAP_PROPERTIES heap = {};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+            if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                       IID_PPV_ARGS(job.dst))))
+            {
+                *job.dst = nullptr;
+                device->Release();
+                return false;
+            }
+        }
+
+        codec::Params p {};
+        p.mode = job.mode;
+        p.width = dstWidth;
+        p.height = dstHeight;
+        // Carries the source extent, which the point mode needs to map its own coordinates back.
+        p.guideWidth = srcWidth;
+        p.guideHeight = srcHeight;
+
+        ID3D12Resource* readable = ReadableGuide(device, cmdList, job.src, nullptr);
+
+        if (readable == nullptr)
+            readable = job.src;
+
+        g_codec.dispatch(cmdList, p, readable, nullptr, nullptr, *job.dst, nullptr);
+
+        params->Set(job.key, *job.dst);
+    }
+
+    float mvScaleX = 1.0f;
+    float mvScaleY = 1.0f;
+    params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &mvScaleX);
+    params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &mvScaleY);
+    params->Set(NVSDK_NGX_Parameter_MV_Scale_X, mvScaleX * ((float) dstWidth / (float) srcWidth));
+    params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, mvScaleY * ((float) dstHeight / (float) srcHeight));
+
+    params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, dstWidth);
+    params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, dstHeight);
+
+    static bool reported = false;
+
+    if (!reported)
+    {
+        reported = true;
+        LOG_INFO("DLSS-NR multi-pass custom: the first pass's inputs are resampled {}x{} -> {}x{} "
+                 "(depth point-sampled), motion vector scale scaled by {}",
+                 srcWidth, srcHeight, dstWidth, dstHeight, (float) dstWidth / (float) srcWidth);
+    }
+
+    device->Release();
+    return true;
+}
 bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
 
 const char* FailureReason() { return g_nr.failed ? g_nr.reason : ""; }
@@ -1121,6 +1267,17 @@ void Shutdown()
         g_nr.release(g_nr.feature);
 
     g_nr.feature = nullptr;
+
+    // Freed rather than parked: nothing is in flight once the device is going away, and there will be
+    // no further frames to retire them on.
+    for (ID3D12Resource** r : { &g_nr.f1Color, &g_nr.f1Depth, &g_nr.f1Mvec })
+    {
+        if (*r != nullptr)
+        {
+            (*r)->Release();
+            *r = nullptr;
+        }
+    }
 
     if (g_nr.output != nullptr)
     {

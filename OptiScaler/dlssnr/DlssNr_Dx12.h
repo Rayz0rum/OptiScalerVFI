@@ -69,6 +69,18 @@ void RetryAfterFailure();
 void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
                               ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
                               unsigned int width, unsigned int height);
+
+/*
+ * Resample the first pass's inputs down to the size it is being run at, for Multi-pass Custom.
+ *
+ * Without it the game's buffers are handed over unchanged while the feature is told they are smaller,
+ * so DLSS reads the top-left corner of each -- a crop, not a reduction -- and the frame becomes a
+ * magnified corner of itself. Rewrites Color, Depth, MotionVectors, the motion vector scales and the
+ * render subrect in the parameter block. Call it before the first pass evaluates.
+ */
+bool ResampleFeature1Inputs(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                            unsigned int srcWidth, unsigned int srcHeight, unsigned int dstWidth,
+                            unsigned int dstHeight);
 bool IsRunning();
 
 // Why it is not, if it is not. Empty while it is running or has not been tried yet.

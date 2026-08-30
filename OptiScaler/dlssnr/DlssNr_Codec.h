@@ -42,6 +42,10 @@ constexpr int MODE_DOWNSAMPLE = 2;
 // Carries the model's edit from the resolved image onto the game's jittered one, so a multi-pass chain
 // can still end in a real Super Resolution pass. See the shader.
 constexpr int MODE_TRANSFER = 3;
+
+// Point downsample, for depth: a filtered depth tap that straddles a silhouette returns a distance
+// where no surface is. gGuideWidth/gGuideHeight carry the SOURCE extent for this mode.
+constexpr int MODE_POINT_DOWN = 4;
 // Debug views, so the model's contribution can be looked at rather than guessed at.
 constexpr int DEBUG_OFF = 0;
 constexpr int DEBUG_PROXY = 1;      // the picture the model was shown
@@ -255,6 +259,21 @@ void main(uint3 id : SV_DispatchThreadID)
             ratio = clamp(afterLuma / beforeLuma, 1.0 / max(gMaxRatio, 1.0), gMaxRatio);
 
         gTarget[id.xy] = float4(Sanitize(jittered.rgb) * ratio, jittered.a);
+        return;
+    }
+
+    /*
+     * Mode 4 -- point downsample, for depth.
+     *
+     * Depth is not a colour and must not be filtered like one. A bilinear tap that straddles a
+     * silhouette returns a distance where nothing is, and the upscaler reprojects against that ghost
+     * geometry. Taking the nearest source texel keeps every value one the scene actually contains.
+     */
+    if (gMode == 4)
+    {
+        const int2 src = int2((float2(id.xy) + 0.5) * float2(gGuideWidth, gGuideHeight) /
+                              float2(gWidth, gHeight));
+        gTarget[id.xy] = gSource.Load(int3(src, 0));
         return;
     }
 

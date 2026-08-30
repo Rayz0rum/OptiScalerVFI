@@ -209,6 +209,21 @@ void main(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    /*
+     * Mode 4 -- point downsample, for depth.
+     *
+     * Depth is not a colour and must not be filtered like one. A bilinear tap that straddles a
+     * silhouette returns a distance where nothing is, and the upscaler reprojects against that ghost
+     * geometry. Taking the nearest source texel keeps every value one the scene actually contains.
+     */
+    if (gMode == 4)
+    {
+        const int2 src = int2((float2(id.xy) + 0.5) * float2(gGuideWidth, gGuideHeight) /
+                              float2(gWidth, gHeight));
+        gTarget[id.xy] = gSource.Load(int3(src, 0));
+        return;
+    }
+
     if (gMode == 2)
     {
         gTarget[id.xy] = gSource.SampleLevel(gLinear, uv, 0);

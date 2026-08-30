@@ -205,8 +205,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   // this stage reads it and enlarges into nextOutput.
                   if (spatialEnlarge)
                   {
-                      if (MultiPassScaler->CreateBufferResource(Device, nextOutput, NRSourceWidth(),
-                                                                NRSourceHeight(),
+                      if (MultiPassScaler->CreateBufferResource(Device, nextOutput, RenderWidth(),
+                                                                RenderHeight(),
                                                                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
                       {
                           MultiPassScaler->SetBufferState(InCommandList,
@@ -217,7 +217,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                       return nullptr;
                   }
 
-                  if (SecondUpscaler->CreateInputBuffer(nextOutput, NRSourceWidth(), NRSourceHeight()))
+                  if (SecondUpscaler->CreateInputBuffer(nextOutput, RenderWidth(), RenderHeight()))
                   {
                       SecondUpscaler->SetInputBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                       return SecondUpscaler->InputBuffer();
@@ -259,7 +259,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   const bool transferEdit =
                       !spatialEnlarge && !firstPassIsRr &&
                       Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
-                      SecondUpscaler->CreateEditBuffers(input, NRSourceWidth(), NRSourceHeight());
+                      SecondUpscaler->CreateEditBuffers(input, RenderWidth(), RenderHeight());
 
                   if (firstPassIsRr && !spatialEnlarge)
                   {
@@ -280,8 +280,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   if (transferEdit)
                       CopyRenderRect(InCommandList, input, SecondUpscaler->EditBefore());
 
-                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, NRSourceWidth(),
-                                               NRSourceHeight());
+                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, RenderWidth(),
+                                               RenderHeight());
 
                   if (spatialEnlarge)
                   {
@@ -305,14 +305,14 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                       {
                           DlssNr::TransferEditOntoJittered(InCommandList, SecondUpscaler->EditBefore(),
                                                            input, paramColor, SecondUpscaler->EditResult(),
-                                                           NRSourceWidth(), NRSourceHeight());
+                                                           RenderWidth(), RenderHeight());
                           enlargeSource = SecondUpscaler->EditResult();
                       }
                   }
 
 
 
-                  if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
+                  if (!SecondUpscaler->EnsureCreated(InCommandList, RenderWidth(), RenderHeight(),
                                                      DisplayWidth(), DisplayHeight(),
                                                      (int) PerfQualityValue(), DepthInverted(), JitteredMV(),
                                                      LowResMV()))
@@ -520,6 +520,26 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
     }
 #endif
 
+
+#if OPTI_DLSSNR
+    /*
+     * Multi-pass Custom runs the first pass below the game's render resolution, so its inputs have to
+     * be reduced to match. Without this the game's full-size buffers go over unchanged while the
+     * feature is told they are smaller, and DLSS reads the top-left corner of each -- a crop, not a
+     * reduction, and the frame arrives as a magnified corner of itself.
+     *
+     * Before EvaluateInternal, because it rewrites the parameter block the first pass is about to read.
+     */
+    if (NRFeature1IsResampled())
+    {
+        unsigned int f1Width = 0;
+        unsigned int f1Height = 0;
+        NRFeature1Size(f1Width, f1Height);
+
+        DlssNr::ResampleFeature1Inputs(InCommandList, InParameters, NRSourceWidth(), NRSourceHeight(),
+                                       f1Width, f1Height);
+    }
+#endif
     UpscalerTime->Start(InCommandList);
 
     auto evalResult = EvaluateInternal(InCommandList, InParameters);
