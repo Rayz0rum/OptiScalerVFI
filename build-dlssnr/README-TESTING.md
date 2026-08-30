@@ -155,20 +155,22 @@ parameter ever was.
 
 ## Worth testing first
 
-Test in this order — it isolates each fix, so a failure tells you which one did not hold.
+Test in this order — it isolates each change, so a failure tells you which one did not hold.
 
-1. **Multi-pass in motion.** The motion vector resolution fix should be the large one. If it still
-   smears, that is a different cause: the new creation log line names the vector resolution, depth
-   convention and jitter the enlarging pass was given.
-2. **The sun**, in Upscale with DLSS-SR. Should be a sun rather than a coloured block.
-3. **`ResetEveryFrame=true`** in the ini, then compare. Diagnostic only — turn it back off.
-4. **The colour guard** — still the one with no result at all yet. It does not need an HDR monitor;
-   see below. Colour strength **1.00**, guard **1.00**, then guard **0.00** for the A/B.
-5. **Final pass jitter** at Zero and then Forward, in multi-pass. Read per frame, so no restart.
-   Borderlands 4 does not set `MVJittered`, so the setting is not overridden there.
+1. **Multi-pass with Enlargement = Spatial** (the new default), at your usual upscale ratio. The
+   warping should be gone. It will still be softer than post-process, and that part is real: the
+   first pass produced render-resolution detail and no filter can invent past it.
+2. **Flip Enlargement to DLSS Super Resolution** for the direct comparison.
+3. **`ResetEveryFrame=true`, against post-process specifically.** This chases the baseline ghosting
+   that post-process and 1:1 multi-pass share — if it changes, the model keeps history. Diagnostic
+   only; turn it back off.
+4. **The colour guard** — still no result on it at all. Colour strength **1.00**, guard **1.00**,
+   then guard **0.00** for the A/B. No HDR monitor needed; see below.
+5. **The sun**, in Upscale with DLSS-SR. Should be a sun rather than a coloured block.
 
 If something crashes rather than looks wrong, the log is more use than the crash dump: the last line
 before the abort says how far it got.
+
 
 
 **The colour guard.** Set Colour strength back to **1.00** and the guard to **1.00**.
