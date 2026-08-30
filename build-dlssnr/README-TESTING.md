@@ -31,6 +31,28 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
+**Multi-pass no longer smears the frame when the camera moves.** The second upscaler was created with
+`NVSDK_NGX_DLSS_Feature_Flags_MVLowRes` hardcoded on. Borderlands 4 declares `LowResMV: false` — its
+motion vectors are at display resolution — so DLSS read a 1920×1080 vector field as though it were
+1268×713 and reprojected history by a factor growing with distance from the origin. The first pass had
+the game's flags untouched, which is why only the enlargement smeared.
+
+The flag is now forwarded from what the game declares, like every other flag on that feature. The
+creation log states the vector resolution, depth convention and jitter the pass was given.
+
+**The broken sun in Upscale with DLSS-SR is fixed.** Post-process works on the upscaler's output
+(RGBA16F); the reordered modes work on the game's own scene colour, which here is R11G11B10_FLOAT —
+and a sun arrives in it as infinity. The encode computed `rolled / displayLuma` as 1/Inf, which is
+zero, then multiplied that back into an infinite channel. `Inf * 0` is NaN, the model was handed the
+NaN, and what came back was a block of garbage exactly where the sun was. The codec now bounds
+non-finite values on the way in, on all three backends.
+
+**`ResetEveryFrame` — a diagnostic, not a setting.** The model takes motion vectors and a `Reset`,
+neither of which means anything to a pass without internal history, so it almost certainly
+accumulates. Setting `DlssNr/ResetEveryFrame=true` denies it any history at all. If stability changes,
+it had some — which settles by observation what can otherwise only be inferred. Leave it off
+normally.
+
 **Upscale with DLSS-SR no longer shows flickering coloured blocks.** Borderlands 4 allocates its
 colour buffer at display size and renders into the top-left 1268×713 of it. In post-process the model
 works on the finished output, where the whole allocation is valid; in the reordered arrangements it
@@ -115,18 +137,19 @@ parameter ever was.
 
 Test in this order — it isolates each fix, so a failure tells you which one did not hold.
 
-1. **Post-process only**, Neural Rendering enabled. This is the path that crashed on feature
-   construction, regardless of what you did afterwards. If it survives, that fix holds.
-2. **Switch to Multi-pass + Super Resolution** in the menu. One frame of hitch, then it should run;
-   that hitch is the feature rebuilding. Set **First pass** to Super Resolution — this game has no
-   Ray Reconstruction, so RR will keep falling back to post-process and logging why.
-3. **Multi-pass in motion**, now the final pass jitter is fixed. Try **Final pass jitter** at Zero
-   and then at Forward — it is read per frame, so no restart.
+1. **Multi-pass in motion.** The motion vector resolution fix should be the large one. If it still
+   smears, that is a different cause: the new creation log line names the vector resolution, depth
+   convention and jitter the enlarging pass was given.
+2. **The sun**, in Upscale with DLSS-SR. Should be a sun rather than a coloured block.
+3. **`ResetEveryFrame=true`** in the ini, then compare. Diagnostic only — turn it back off.
 4. **The colour guard** — still the one with no result at all yet. It does not need an HDR monitor;
-   see below.
+   see below. Colour strength **1.00**, guard **1.00**, then guard **0.00** for the A/B.
+5. **Final pass jitter** at Zero and then Forward, in multi-pass. Read per frame, so no restart.
+   Borderlands 4 does not set `MVJittered`, so the setting is not overridden there.
 
-If step 1 still dies, the log is more use than the crash dump: the last line before the abort says
-how far construction got.
+If something crashes rather than looks wrong, the log is more use than the crash dump: the last line
+before the abort says how far it got.
+
 
 **The colour guard.** Set Colour strength back to **1.00** and the guard to **1.00**.
 
