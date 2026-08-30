@@ -29,6 +29,24 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
   to a game's native DLSS passing straight through.
 - **Highlight colour guard**, in the Colour section. See below.
 
+## Fixed since the last build
+
+**Changing the placement no longer breaks the upscaler.** Multi-pass with Super Resolution as the
+first pass failed every frame with `FAIL_InvalidParameter`. The target resolution is latched when the
+feature is created and nothing rebuilt it — the game's resolutions had not moved, which is the only
+thing engines watch. The pipeline meanwhile read config live, so it routed the upscaler's output into
+a render-resolution buffer while its feature was still built to write display resolution.
+
+A placement change now rebuilds the feature, and the pipeline branches on what the feature was
+**built** for rather than on what is configured, so the two cannot disagree. Expect one frame of
+hitch when you switch placement; that is the rebuild, not an error.
+
+Ray Reconstruction only appeared to work before: this game has no RR, so it fell back to post-process
+and never built the stage at all.
+
+The reordered placements are now also gated to D3D12, where they are implemented. On D3D11 and Vulkan
+they fall back to post-process rather than clearing IsHDR on a feature nothing runs ahead of.
+
 ## Worth testing first
 
 **The colour guard, in HDR.** Set Colour strength back to **1.00** and the guard to **1.00**.
