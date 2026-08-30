@@ -9,6 +9,32 @@
 
 #include <imgui/imgui.h>
 
+namespace
+{
+// A process runs one backend or the other -- a D3D11 game never reaches the D3D12 path and vice
+// versa -- so the panel asks both and reports whichever answered. Without this the D3D11 route works
+// while the menu insists nothing is running, which reads as a bug in the pass rather than in the menu.
+bool AnyRunning() { return DlssNr::IsRunning() || DlssNr::IsRunningDx11(); }
+
+const char* AnyFailureReason()
+{
+    const char* reason = DlssNr::FailureReason();
+    return reason[0] != 0 ? reason : DlssNr::FailureReasonDx11();
+}
+
+std::optional<double> AnyGpuTime()
+{
+    const auto ms = DlssNr::LastGpuTime();
+    return ms.has_value() ? ms : DlssNr::LastGpuTimeDx11();
+}
+
+void RetryAll()
+{
+    DlssNr::RetryAfterFailure();
+    DlssNr::RetryAfterFailureDx11();
+}
+} // namespace
+
 namespace DlssNr
 {
 
@@ -48,9 +74,9 @@ void RenderMenu(Config* config, float menuResScale)
                        "\n  nvngx.dll_dlssnr.dll   the forwarder (~13 KB) -- ships in this package"
                        "\nUndocumented and driven directly, so none of this is officially supported.");
 
-        if (!DlssNr::IsRunning())
+        if (!AnyRunning())
         {
-            const char* reason = DlssNr::FailureReason();
+            const char* reason = AnyFailureReason();
 
             if (reason[0] != 0)
             {
@@ -58,7 +84,7 @@ void RenderMenu(Config* config, float menuResScale)
                 ImGui::SameLine();
 
                 if (ImGui::SmallButton("Retry"))
-                    DlssNr::RetryAfterFailure();
+                    RetryAll();
             }
             else if (enabled)
                 ImGui::TextUnformatted("Waiting for the upscaler to run.");
@@ -68,7 +94,7 @@ void RenderMenu(Config* config, float menuResScale)
             // The cost belongs here rather than only in the upscaler's breakdown: that tooltip needs
             // OptiScaler's own upscaler to have run, and with native DLSS passing through there is
             // nothing in it to hang this off.
-            const auto ms = DlssNr::LastGpuTime();
+            const auto ms = AnyGpuTime();
 
             if (ms.has_value())
                 ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Running - %.2f ms per frame",

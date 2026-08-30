@@ -12,6 +12,7 @@
 
 #include <with_dx12/with_dx12.h>
 #include "FG/Upscaler_Inputs_Dx11wDx12.h"
+#include <dlssnr/DlssNr.h>
 
 #include <ankerl/unordered_dense.h>
 #include <imgui/ImGuiNotify.hpp>
@@ -781,6 +782,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D11_EvaluateFeature(ID3D11DeviceConte
     }
 
     auto upscaleResult = deviceContext->Evaluate(InDevCtx, InParameters);
+
+#if OPTI_DLSSNR
+    // The pass runs on the game's own context, straight after the upscaler has written its output and
+    // before the interface is drawn -- which is what makes the HUD safe here, exactly as on D3D12.
+    if (upscaleResult)
+        DlssNr::EvaluateAfterUpscaleDx11(InDevCtx, InParameters);
+#endif
 
     if (State::Instance().activeFgInput == FGInput::Upscaler)
     {
