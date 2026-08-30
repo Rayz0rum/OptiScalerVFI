@@ -164,7 +164,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                       return true;
 
                   // The model, at render resolution, on what the first pass produced.
-                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input);
+                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, NRSourceWidth(),
+                                               NRSourceHeight());
 
                   if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
                                                      DisplayWidth(), DisplayHeight(),
@@ -359,7 +360,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
 
         if (paramColor != nullptr)
-            DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, paramColor);
+            DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, paramColor, RenderWidth(),
+                                         RenderHeight());
     }
 #endif
 

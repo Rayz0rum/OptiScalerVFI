@@ -24,14 +24,19 @@ namespace DlssNr
 //
 // `targetOverride` names the image to work on instead of the parameter block's Output. The reordered
 // and multi-pass arrangements need it: in those the model runs at render resolution, on the upscaler's
-// input or on a first pass's 1:1 result, neither of which is what Output points at. Everything else
-// follows from the resource itself -- its extent decides the working size, and the motion vector scale
-// falls out at 1.0 because the guides are already in those pixels.
+// input or on a first pass's 1:1 result, neither of which is what Output points at.
+//
+// `overrideWidth` and `overrideHeight` name the region of that image which actually holds the frame,
+// and are not optional when the target is. A game commonly allocates its colour buffer at display size
+// and renders into the top-left corner, so the resource extent is the wrong answer for the working
+// size -- everything past the render rect is memory nobody wrote, and encoding it hands the model
+// garbage that comes back as flickering coloured blocks.
 //
 // Safe to call every frame; it builds what it needs on first use and disables itself for the session if
 // anything fails, rather than retrying into a crash.
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                          ID3D12Resource* targetOverride = nullptr);
+                          ID3D12Resource* targetOverride = nullptr, unsigned int overrideWidth = 0,
+                          unsigned int overrideHeight = 0);
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask

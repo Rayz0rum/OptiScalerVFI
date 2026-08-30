@@ -591,7 +591,8 @@ void RetryAfterFailure()
 }
 
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                          ID3D12Resource* targetOverride)
+                          ID3D12Resource* targetOverride, unsigned int overrideWidth,
+                          unsigned int overrideHeight)
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
     const Config& cfg = *Config::Instance();
@@ -621,8 +622,17 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         return;
 
     const D3D12_RESOURCE_DESC desc = target->GetDesc();
-    const auto width = (unsigned int) desc.Width;
-    const auto height = desc.Height;
+    /*
+     * The region of the target that actually holds the frame.
+     *
+     * Not the resource's extent when the caller named one. A game commonly allocates its colour buffer
+     * at display size and renders into the top-left corner of it, so in the reordered arrangements --
+     * where the model works on that buffer rather than on the finished output -- the allocation is far
+     * larger than the picture. Encoding all of it hands the model whatever was left in memory past the
+     * render rect, and it comes back as flickering coloured blocks over the frame.
+     */
+    const auto width = overrideWidth != 0 ? overrideWidth : (unsigned int) desc.Width;
+    const auto height = overrideHeight != 0 ? overrideHeight : desc.Height;
 
     // Depth and motion vectors are the upscaler's inputs and so are at render resolution, while colour
     // and output are at display resolution. The model takes that as a subrect per resource rather than
