@@ -31,6 +31,21 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
+**Multi-pass Custom now works.** It held the first pass below render resolution and nothing acted on
+it, so the game's full-size buffers went over unchanged while the feature was told they were smaller.
+DLSS read the top-left corner of each — a crop, not a reduction — and the frame arrived as a magnified
+corner of itself.
+
+The first pass's inputs are now resampled down to match before it runs: colour and motion vectors
+filtered, **depth point-sampled**. A bilinear depth tap straddling a silhouette returns a distance
+where no surface is, and the upscaler then reprojects against geometry that does not exist. The motion
+vector scale and the render subrect follow the reduction, and everything downstream works at the size
+that pass actually produced, so the enlargement covers the larger gap.
+
+It is a **performance** control, not a quality one: a cheaper first pass, at the cost of the
+enlargement starting from less real detail. At 50% you are asking DLSS to go 634→1920. Judge it on
+whether it produces a whole frame, not on how it compares to the others.
+
 **Multi-pass with DLSS should now be sharp and steady.** The softness and the warping had one cause:
 the first pass resolves the game's jitter, so handing its output straight to a temporal upscaler
 leaves that upscaler nothing to reconstruct from — one sample position per pixel, identical every
