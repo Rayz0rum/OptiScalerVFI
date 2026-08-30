@@ -33,6 +33,16 @@ void DLSSDFeature::ProcessEvaluateParams(NVSDK_NGX_Parameter* InParameters)
 void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
 {
     // Create flags -----------------------------
+#if OPTI_DLSSNR
+    /*
+     * Settle the Neural Rendering arrangement first: it can clear IsHDR and AutoExposure, which the
+     * create flags below are assembled from, and hold the target at 1:1. Here rather than in
+     * SetInitParameters because that runs from a constructor, where the virtuals this needs do not
+     * exist yet.
+     */
+    NRPrepareForCreate();
+#endif
+
     unsigned int featureFlags = 0;
 
     if (DepthInverted())

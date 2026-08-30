@@ -228,6 +228,15 @@ class IFeature
      * arrangement already contains exactly one enlargement, and a second would
      * produce the upscale-downscale-upscale chain it exists to avoid.
      */
+    /*
+     * Settle which arrangement this feature is being built for, and apply what that decides -- the
+     * flag overrides and the 1:1 hold.
+     *
+     * Must be called from ProcessInitParams, never from a constructor: it asks Api() and
+     * GetUpscalerType(), which are still pure virtual while the base classes are being built.
+     */
+    void NRPrepareForCreate();
+
     bool NRApplyFeature1Hold();
 
     /* The resolution everything after the first pass works at -- the game's own

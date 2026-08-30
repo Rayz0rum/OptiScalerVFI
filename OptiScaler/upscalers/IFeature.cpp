@@ -21,6 +21,19 @@ DlssNr::Mode IFeature::NREffectiveMode() const
     if (Api() != API::DX12)
         return DlssNr::Mode::PostProcess;
 
+    /*
+     * Only DLSS and Ray Reconstruction reach NRPrepareForCreate, so only they can have their flags
+     * cleared or their target held at 1:1.
+     *
+     * This matters beyond the arrangement not working elsewhere. NRNeedsRebuild compares the mode the
+     * feature was built for against this one, so returning anything but PostProcess for an upscaler
+     * that never records a built mode would ask for a rebuild every single frame, for ever.
+     */
+    const auto upscaler = GetUpscalerType();
+
+    if (upscaler != Upscaler::DLSS && upscaler != Upscaler::DLSSD)
+        return DlssNr::Mode::PostProcess;
+
     if (!DlssNr::UsesTwoFeatures(mode))
         return mode;
 
@@ -35,7 +48,7 @@ DlssNr::Mode IFeature::NREffectiveMode() const
      * half-applying the arrangement, which would clear flags on one feature
      * while never creating the other.
      */
-    const bool rrActive = GetUpscalerType() == Upscaler::DLSSD;
+    const bool rrActive = upscaler == Upscaler::DLSSD;
     const bool wantsRr = Config::Instance()->DlssNrFeature1Pipeline.value_or_default() ==
                          (uint32_t) DlssNr::Feature1Pipeline::RayReconstruction;
 
@@ -154,6 +167,63 @@ bool IFeature::NRFeature1IsResampled() const
     return width != NRSourceWidth() || height != NRSourceHeight();
 }
 
+/*
+ * Settle which arrangement this feature is being built for, and apply what that decides.
+ *
+ * Deliberately NOT part of SetInitParameters. That runs from a feature's constructor -- DLSSFeature's,
+ * with DLSSFeatureDx12 not yet built -- where Api() and GetUpscalerType() are still pure virtual.
+ * Calling them there aborts the process with "pure virtual function being called", which is exactly
+ * what happened the first time a placement change actually rebuilt a feature.
+ *
+ * Called from ProcessInitParams instead, which runs from InitInternal with the object complete, and
+ * before the create flags are assembled from _initFlags.
+ */
+void IFeature::NRPrepareForCreate()
+{
+    _nrModeAtCreate = NREffectiveMode();
+    _nrReorderedAtCreate = NRWantsReorderedFlags();
+
+    /*
+     * In the reordered arrangement the model runs first and hands the upscaler a tone-mapped,
+     * display-referred picture. Telling it the frame is still linear HDR blows out the colour; leaving
+     * AutoExposure on has it metering a picture that has already been exposed. Both are latched at
+     * creation, which is what NRNeedsRebuild exists to catch.
+     *
+     * The exposure the upscaler needs in AutoExposure's place is supplied as an explicit 1x1 identity.
+     */
+    if (_nrReorderedAtCreate)
+    {
+        _initFlags.IsHdr = false;
+        _initFlags.AutoExposure = false;
+        LOG_INFO("DLSS-NR: the model runs before the upscale, so this feature is created with IsHDR and "
+                 "AutoExposure cleared");
+    }
+
+    /*
+     * Multi-pass holds the first feature at 1:1 -- the second one performs the single enlargement in
+     * the frame. In the Custom variant the first pass may sit below the game's render resolution, its
+     * inputs resampled down and its result brought back up before the model sees it.
+     */
+    if (NRUsesTwoFeatures() && _nrSourceWidth != 0 && _nrSourceHeight != 0)
+    {
+        unsigned int f1Width = 0;
+        unsigned int f1Height = 0;
+        NRFeature1Size(f1Width, f1Height);
+
+        if (f1Width != 0 && f1Height != 0)
+        {
+            _renderWidth = f1Width;
+            _renderHeight = f1Height;
+            _targetWidth = f1Width;
+            _targetHeight = f1Height;
+
+            LOG_INFO("DLSS-NR multi-pass: the first pass runs 1:1 at {}x{} (the game renders {}x{}), and "
+                     "a second feature enlarges to {}x{}",
+                     f1Width, f1Height, _nrSourceWidth, _nrSourceHeight, _displayWidth, _displayHeight);
+        }
+    }
+}
+
 #endif // OPTI_DLSSNR
 void IFeature::SetHandle(unsigned int InHandleId)
 {
@@ -239,34 +309,17 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
 
 #if OPTI_DLSSNR
         /*
-         * What the game's own frame is, recorded before the override below can
-         * change what IsHdr() reports. The colour codec branches on this: reading
-         * the overridden flag would make the encode a no-op on exactly the frames
-         * that most need it, and the model would then be shown a linear frame it
-         * was never trained on while the pass appeared to do nothing.
+         * What the game's own frame is, recorded before NRPrepareForCreate can change what IsHdr()
+         * reports. The colour codec branches on this: reading the overridden flag would make the
+         * encode a no-op on exactly the frames that most need it, and the model would then be shown a
+         * linear frame it was never trained on while the pass appeared to do nothing.
+         *
+         * A plain copy, deliberately. Everything here runs from a feature's CONSTRUCTOR, before the
+         * most-derived class exists, so Api() and GetUpscalerType() are still pure virtual -- asking
+         * which arrangement is in force would abort the process. That decision is made later, in
+         * NRPrepareForCreate.
          */
         _nrGameIsHdr = _initFlags.IsHdr;
-
-        /*
-         * In the reordered arrangement the model runs first and hands the
-         * upscaler a tone-mapped, display-referred picture. Telling it the frame
-         * is still linear HDR blows out the colour; leaving AutoExposure on has
-         * it metering a picture that has already been exposed. Both are latched
-         * at creation, which is why NRNeedsRebuildForOrdering exists.
-         *
-         * The exposure the upscaler needs in AutoExposure's place is supplied by
-         * the module, as an explicit 1x1 identity.
-         */
-        _nrModeAtCreate = NREffectiveMode();
-        _nrReorderedAtCreate = NRWantsReorderedFlags();
-
-        if (_nrReorderedAtCreate)
-        {
-            _initFlags.IsHdr = false;
-            _initFlags.AutoExposure = false;
-            LOG_INFO("DLSS-NR: the model runs before the upscale, so this feature is created with IsHDR "
-                     "and AutoExposure cleared");
-        }
 #endif
 
         LOG_INFO("Init Flag AutoExposure: {}", _initFlags.AutoExposure);
@@ -337,40 +390,18 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
 
 #if OPTI_DLSSNR
         /*
-         * The game's own render resolution, before the multi-pass hold can move
-         * _renderWidth down. Everything after the first pass works at this size:
-         * the depth and motion vectors the game supplies are here, the model runs
-         * here, and the second feature enlarges from here to display.
+         * The game's own render resolution, before the multi-pass hold can move _renderWidth down.
+         * Everything after the first pass works at this size: the depth and motion vectors the game
+         * supplies are here, the model runs here, and the second feature enlarges from here to
+         * display.
+         *
+         * Another plain copy. The hold itself needs to know which arrangement is in force, which
+         * cannot be asked from a constructor, so it happens in NRPrepareForCreate instead.
          */
         _nrSourceWidth = _renderWidth;
         _nrSourceHeight = _renderHeight;
-
-        /*
-         * Multi-pass holds the first feature at 1:1 -- the second one performs
-         * the single enlargement in the frame. In the Custom variant the first
-         * pass may sit below the game's render resolution, in which case its
-         * inputs are resampled down and its result brought back up before the
-         * model sees it.
-         */
-        if (NRUsesTwoFeatures())
-        {
-            unsigned int f1Width = 0;
-            unsigned int f1Height = 0;
-            NRFeature1Size(f1Width, f1Height);
-
-            if (f1Width != 0 && f1Height != 0)
-            {
-                _renderWidth = f1Width;
-                _renderHeight = f1Height;
-                _targetWidth = f1Width;
-                _targetHeight = f1Height;
-
-                LOG_INFO("DLSS-NR multi-pass: the first pass runs 1:1 at {}x{} (the game renders {}x{}), "
-                         "and a second feature enlarges to {}x{}",
-                         f1Width, f1Height, _nrSourceWidth, _nrSourceHeight, _displayWidth, _displayHeight);
-            }
-        }
 #endif
+
         _perfQualityValue = (NVSDK_NGX_PerfQuality_Value) pqValue;
 
         LOG_INFO("Render Resolution: {0}x{1}, Display Resolution {2}x{3}, Quality: {4}", _renderWidth, _renderHeight,
