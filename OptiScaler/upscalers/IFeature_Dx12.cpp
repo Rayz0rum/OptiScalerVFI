@@ -239,9 +239,43 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                    * both what the model was shown and what it returned, and the model writes over its
                    * input.
                    */
+                  /*
+                   * The transfer carries the model's edit onto the game's original jittered frame,
+                   * which means the first pass's own IMAGE is discarded and only its influence on the
+                   * model survives.
+                   *
+                   * That is right for Super Resolution as the first pass: its antialiasing is lost,
+                   * but the enlargement redoes it from properly jittered input, which is what DLSS is
+                   * for. It is wrong for Ray Reconstruction. RR's output is a denoised path-traced
+                   * signal, and a per-pixel brightness ratio cannot carry a spatial denoise -- feeding
+                   * the raw jittered frame back in puts every bit of the noise back, which is the
+                   * entire reason that pipeline exists.
+                   *
+                   * So RR keeps its resolved frame. Pair it with the spatial enlargement, which asks
+                   * for no jitter and so does not need any of this.
+                   */
+                  const bool firstPassIsRr = GetUpscalerType() == Upscaler::DLSSD;
+
                   const bool transferEdit =
-                      !spatialEnlarge && Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
+                      !spatialEnlarge && !firstPassIsRr &&
+                      Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
                       SecondUpscaler->CreateEditBuffers(input, NRSourceWidth(), NRSourceHeight());
+
+                  if (firstPassIsRr && !spatialEnlarge)
+                  {
+                      static bool warned = false;
+
+                      if (!warned)
+                      {
+                          warned = true;
+                          LOG_WARN("DLSS-NR multi-pass: the first pass is Ray Reconstruction, so its "
+                                   "denoised frame is kept rather than transferred -- a brightness ratio "
+                                   "cannot carry a denoise. The DLSS enlargement therefore has no jitter "
+                                   "to work with here; the spatial enlargement is the better pairing for "
+                                   "this pipeline.");
+                      }
+                  }
+
 
                   if (transferEdit)
                       CopyRenderRect(InCommandList, input, SecondUpscaler->EditBefore());
