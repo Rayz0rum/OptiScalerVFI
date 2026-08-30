@@ -276,18 +276,19 @@ void RenderMenu(Config* config, float menuResScale)
         HelpMarker("Protects saturated highlights from being washed white in HDR."
                        "\n\nThe encode normalises brightness but not the individual channels, so a very"
                        "\nbright saturated pixel keeps a channel above 1.0 in the picture the model is"
-                       "\nshown -- outside anything it was trained on. It has no way to represent"
+                       "\nshown -- outside the range it was trained on. It has no way to express"
                        "\n\"green, brighter than white\", so it returns near-white, and the highlight"
-                       "\nbranch then correctly multiplies that whiteness back up to full brightness."
-                       "\nA neon light arrives white."
-                       "\n\nThis compares the colour the model returned against the colour it was given."
-                       "\nWhere they match it was working within its range and its colour is used in"
-                       "\nfull; where it lost the chroma, that pixel falls back to a brightness-only"
-                       "\nedit. Midtones are untouched."
-                       "\n\nSDR is untouched entirely -- an already tone-mapped frame is copied rather"
-                       "\nthan encoded, so nothing ever leaves the model's range and this never fires."
-                       "\n\n0 is the old behaviour. Turn it down if a highlight looks under-coloured"
-                       "\nrather than over-white.");
+                       "\nbranch then correctly carries that whiteness up to full brightness. A neon"
+                       "\nlight arrives white."
+                       "\n\nThis acts only on pixels that were actually out of range, which is a small"
+                       "\npart of the frame. Everywhere else the model's colour is used in full --"
+                       "\nincluding every deliberate shift of tone and light interaction it decided on,"
+                       "\nwhich is a real part of what it does and not something to give up to fix a"
+                       "\nhighlight. That is the difference between this and turning Colour strength"
+                       "\ndown: that switches the model's colour work off across the whole frame."
+                       "\n\nSDR never triggers it. An already tone-mapped frame is copied rather than"
+                       "\nencoded, so nothing ever leaves the model's range."
+                       "\n\n0 is the old behaviour.");
 
         ImGui::SeparatorText("Model");
 

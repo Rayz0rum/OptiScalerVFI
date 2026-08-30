@@ -331,32 +331,57 @@ void main(uint3 id : SV_DispatchThreadID)
     float lumaRatio = originalLuma > 1e-6 ? clamp(upgradedLuma / originalLuma, 0.0, gMaxRatio) : 1.0;
 
     /*
-     * Where the model desaturated what it was shown, its colour is not an opinion worth taking.
+     * Where the model was shown a pixel it cannot represent, its colour there is not an opinion
+     * worth taking.
      *
-     * The encode normalises luminance but not the individual channels, so a bright saturated pixel
-     * keeps a channel above 1.0 in the proxy -- outside anything the model was trained on. It has no
-     * way to represent "green, brighter than white", so it returns near-white there. The highlight
-     * branch above then does its job correctly and multiplies that whiteness up to the original's
-     * luminance, and a neon light arrives white at full brightness.
+     * The encode normalises luminance but scales all three channels uniformly, so it bounds the luma
+     * and not the channels. A bright saturated pixel therefore keeps a channel above 1.0 in the
+     * proxy -- outside the display-referred range the model was trained on. It has no way to express
+     * "green, brighter than white", so it returns near-white for that pixel, and the highlight branch
+     * above then does its job correctly and carries that whiteness up to the frame's own luminance.
+     * A neon light arrives white at full brightness.
      *
-     * This cannot happen in the passthrough path: an already tone-mapped frame is copied rather than
-     * encoded, so the proxy is the original and nothing ever leaves the model's range. It is an HDR
-     * failure specifically, which is exactly where it was found.
+     * There is a design tension underneath this. The proxy is deliberately left bright enough to
+     * clip, because the highlight branch is built on exactly that: originalLuma - proxyLuma is the
+     * headroom the proxy could not represent, and dividing it away first leaves that branch nothing
+     * to give back. So the clipping has to stay for luminance to come out right -- and the same
+     * clipping is what destroys the chroma. This resolves the tension by keeping the clip and
+     * declining only the colour damage it causes.
      *
-     * The test is local and needs no threshold: compare the chroma the model returned against the
-     * chroma it was given. Equal means it was working within its range and its colour is trustworthy;
-     * far below means it clipped, and the frame falls back to a luminance-only edit for that pixel.
-     * Midtones, and every pixel in SDR, are untouched.
+     * Two conditions, and both are required:
+     *
+     *   clipped  how far the proxy left the model's range. Zero for anything inside it, which is
+     *            almost the whole frame. This is the part that matters: where the model was working
+     *            on a picture it could actually read, its colour is respected in full, including
+     *            every deliberate shift of tone and light interaction it decided on. Judging by
+     *            desaturation alone would have suppressed those too, and that is a real part of what
+     *            the model does -- not something to throw away to fix a highlight.
+     *
+     *   kept     of the chroma it was given, how much came back. Only consulted where the pixel was
+     *            out of range to begin with.
+     *
+     * A ratio rather than a difference, because the proxy and the model sit at different
+     * brightnesses by construction and only the chroma fraction is comparable between them.
+     *
+     * None of this can fire in the passthrough path: an already tone-mapped frame is copied rather
+     * than encoded, so the proxy is the original and nothing ever leaves the model's range. The
+     * failure is specific to HDR because the encode is the only thing that creates it.
      */
     float colourStrength = gColourStrength;
 
     if (gColourGuard > 0.0 && gPassthrough == 0)
     {
+        const float proxyPeak = max(proxy.r, max(proxy.g, proxy.b));
+
+        // Ramped rather than switched: a hard test at 1.0 would draw a visible edge across a
+        // gradient that crosses it.
+        const float clipped = saturate((proxyPeak - 1.0) / 0.25);
+
         const float proxySat = Saturation(proxy);
         const float modelSat = Saturation(model);
         const float kept = proxySat > 1e-4 ? saturate(modelSat / proxySat) : 1.0;
 
-        colourStrength *= lerp(1.0, kept, saturate(gColourGuard));
+        colourStrength *= lerp(1.0, kept, clipped * saturate(gColourGuard));
     }
 
     float3 result = lerp(original * lumaRatio, upgraded, colourStrength);
