@@ -31,6 +31,21 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
+**The crash on rebuilding a feature is fixed.** "Pure virtual function being called" on the RHI
+thread, inside OptiScaler under its proxy name.
+
+`SetInitParameters` runs from `DLSSFeature`'s *constructor*, with `DLSSFeatureDx12` not yet built, so
+`Api()` and `GetUpscalerType()` are still pure virtual there. Deciding the arrangement in that
+function called both and aborted the process. The flag override and the 1:1 hold now happen in
+`NRPrepareForCreate`, called from `ProcessInitParams` with the object complete.
+
+It had been latent since the placements landed — nothing constructed a feature while multi-pass was
+selected until the rebuild fix made that happen.
+
+The arrangements are now restricted to DLSS and Ray Reconstruction as well. Only those record a built
+mode, so with FSR or XeSS active a configured multi-pass would have asked for a rebuild every frame,
+for ever.
+
 **Changing the placement no longer breaks the upscaler.** Multi-pass with Super Resolution as the
 first pass failed every frame with `FAIL_InvalidParameter`. The target resolution is latched when the
 feature is created and nothing rebuilt it — the game's resolutions had not moved, which is the only
@@ -49,16 +64,41 @@ they fall back to post-process rather than clearing IsHDR on a feature nothing r
 
 ## Worth testing first
 
-**The colour guard, in HDR.** Set Colour strength back to **1.00** and the guard to **1.00**.
+Test in this order — it isolates each fix, so a failure tells you which one did not hold.
 
-Jedi Survivor's droid is the clean test: its backpack lights should be neon green, and were arriving
-white. The guard should bring the green back *while the rest of the frame keeps the model's colour
-work* — which is what turning Colour strength to 0 gave up.
+1. **Post-process only**, Neural Rendering enabled. This is the path that crashed on feature
+   construction, regardless of what you did afterwards. If it survives, that fix holds.
+2. **Switch to Multi-pass + Super Resolution** in the menu. One frame of hitch, then it should run;
+   that hitch is the feature rebuilding. Set **First pass** to Super Resolution — this game has no
+   Ray Reconstruction, so RR will keep falling back to post-process and logging why.
+3. **The colour guard** — still the one with no result at all yet. It does not need an HDR monitor;
+   see below.
+
+If step 1 still dies, the log is more use than the crash dump: the last line before the abort says
+how far construction got.
+
+**The colour guard.** Set Colour strength back to **1.00** and the guard to **1.00**.
+
+**An HDR monitor is not needed.** The guard keys off the game's own DLSS create flag `IsHDR`, which
+describes the *frame buffer* — linear and open-ended — not the display. Plenty of games render that
+way and tone-map to SDR at the very end. Borderlands 4 is one of them; the log says so:
+
+```
+DLSS-NR: the game's DLSS buffer is linear HDR (create flags 0x49), so the colour transform is on
+```
+
+`0x49` is AutoExposure + DepthInverted + IsHDR. The encode is running, so the guard is live and
+testable on an SDR screen. What genuinely cannot be tested without an HDR display is how the result
+*looks* at high nits — but whether a saturated highlight comes back coloured instead of white is
+visible either way.
+
+Look for any small, very bright, strongly coloured thing: neon signage, a muzzle flash, an emissive
+panel, a coloured light source. Those are what leave the model's range and arrive white.
 
 Guard at **0.00** is exactly the old behaviour, so it is a clean A/B.
 
-If the lights are still white with the guard on, switch Debug view to **the model's answer**. White
-there means the diagnosis holds and the guard's threshold needs widening; green there means the
+If it still looks white with the guard on, switch Debug view to **the model's answer**. White there
+means the diagnosis holds and the guard's threshold needs widening; coloured there means the
 whitening happens later and the wrong stage has been blamed.
 
 **Multi-pass Custom.** The scale slider does nothing until **Apply Scale** is pressed — deliberately.

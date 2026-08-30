@@ -273,21 +273,23 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::SliderFloat("Highlight colour guard", &guard, 0.0f, 1.0f, "%.2f"))
             config->DlssNrColourGuard = guard;
 
-        HelpMarker("Protects saturated highlights from being washed white in HDR."
+        HelpMarker("Protects saturated highlights from being washed white."
                        "\n\nThe encode normalises brightness but not the individual channels, so a very"
                        "\nbright saturated pixel keeps a channel above 1.0 in the picture the model is"
                        "\nshown -- outside the range it was trained on. It has no way to express"
                        "\n\"green, brighter than white\", so it returns near-white, and the highlight"
                        "\nbranch then correctly carries that whiteness up to full brightness. A neon"
                        "\nlight arrives white."
-                       "\n\nThis acts only on pixels that were actually out of range, which is a small"
+                       "\n\nThis is about the game's frame buffer, not your monitor. It acts when the"
+                       "\ngame renders in linear HDR -- which many do, tone-mapping to SDR only at the"
+                       "\nvery end -- so an SDR display sees this too. A frame the game already reports"
+                       "\nas tone-mapped is copied rather than encoded, and never triggers it."
+                       "\n\nIt acts only on pixels that were actually out of range, which is a small"
                        "\npart of the frame. Everywhere else the model's colour is used in full --"
                        "\nincluding every deliberate shift of tone and light interaction it decided on,"
                        "\nwhich is a real part of what it does and not something to give up to fix a"
                        "\nhighlight. That is the difference between this and turning Colour strength"
                        "\ndown: that switches the model's colour work off across the whole frame."
-                       "\n\nSDR never triggers it. An already tone-mapped frame is copied rather than"
-                       "\nencoded, so nothing ever leaves the model's range."
                        "\n\n0 is the old behaviour.");
 
         ImGui::SeparatorText("Model");
