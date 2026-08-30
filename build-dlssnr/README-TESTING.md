@@ -31,6 +31,26 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
+**Multi-pass now enlarges spatially by default.** The softness and the warping had one cause, and it
+is a property of the arrangement rather than a bug in it: the first pass resolves the game's jitter —
+that is what DLAA and Ray Reconstruction are *for* — so what reaches the enlargement is grid-aligned
+with no subpixel variation left. A second temporal pass then reconstructs from one sample position
+per pixel, identical every frame, while the model re-decides detail underneath it. Chaining two
+temporal passes cannot preserve jitter for the second one.
+
+Confirmed by observation: the failure scales with the enlargement ratio and disappears at 1:1.
+Multi-pass at native/DLAA sits at the same ghosting level as post-process, because with nothing to
+enlarge there is nothing for the missing jitter to cost. Note that is *parity* with post-process, not
+the absence of ghosting — whatever baseline the two share comes from earlier in the chain, and
+`ResetEveryFrame` is how to find out whether that somewhere is the model's own history.
+
+**Enlargement** (Placement section, `MultiPassEnlarge` in the ini) selects between the spatial filter
+and the second DLSS pass. Spatial is no sharper — both are limited to what the first pass produced —
+but it asks for no jitter and keeps no history, so neither failure is available to it.
+
+If you want DLSS performing the enlargement, **Upscale with DLSS-SR** is the arrangement for that:
+one temporal pass, with the game's jitter intact.
+
 **Multi-pass no longer smears the frame when the camera moves.** The second upscaler was created with
 `NVSDK_NGX_DLSS_Feature_Flags_MVLowRes` hardcoded on. Borderlands 4 declares `LowResMV: false` — its
 motion vectors are at display resolution — so DLSS read a 1920×1080 vector field as though it were

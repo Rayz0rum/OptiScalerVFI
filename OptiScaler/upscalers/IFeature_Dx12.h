@@ -43,6 +43,12 @@ class IFeature_Dx12 : public virtual IFeature
      * temporal history and the memory for it.
      */
     std::unique_ptr<DlssNr_SecondUpscaler_Dx12> SecondUpscaler = nullptr;
+
+    /*
+     * The spatial alternative to it, and the default. Chaining two temporal passes cannot preserve
+     * jitter for the second one, so this one does not ask for any.
+     */
+    std::unique_ptr<OS_Dx12> MultiPassScaler = nullptr;
 #endif
 
     std::unique_ptr<GpuTime_Dx12> UpscalerTime = nullptr;

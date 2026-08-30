@@ -137,10 +137,32 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
      */
     const bool useMultiPass = DlssNr::UsesTwoFeatures(NRBuiltMode());
 
+    /*
+     * How the enlargement is done, and why spatial is the default.
+     *
+     * The first pass resolves the game's jitter -- that is what DLAA and Ray Reconstruction are for --
+     * so what reaches the enlargement is grid-aligned with no subpixel variation left. A temporal
+     * upscaler then reconstructs from one sample position per pixel, identical every frame, while the
+     * model re-decides detail underneath it. That is soft, and it warps whenever the camera moves.
+     * Chaining two temporal passes cannot preserve jitter for the second one; it is a property of the
+     * arrangement, not a bug in it.
+     *
+     * A spatial filter asks for no jitter and keeps no history, so neither failure is available to it.
+     * It is no sharper -- both are limited to what the first pass produced -- but it is steady.
+     */
+    const bool spatialEnlarge = Config::Instance()->DlssNrMultiPassEnlarge.value_or_default() != 0;
+
     if (useMultiPass)
     {
-        if (SecondUpscaler == nullptr)
+        if (spatialEnlarge)
+        {
+            if (MultiPassScaler == nullptr)
+                MultiPassScaler = std::make_unique<OS_Dx12>("DLSS-NR Enlarge", Device, true);
+        }
+        else if (SecondUpscaler == nullptr)
+        {
             SecondUpscaler = std::make_unique<DlssNr_SecondUpscaler_Dx12>("DLSS-NR Second Upscaler", Device);
+        }
 
         pipeline.push_back(
             { // Setup
@@ -148,6 +170,20 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
               {
                   // The first pass writes here, at the game's render resolution;
                   // this stage reads it and enlarges into nextOutput.
+                  if (spatialEnlarge)
+                  {
+                      if (MultiPassScaler->CreateBufferResource(Device, nextOutput, NRSourceWidth(),
+                                                                NRSourceHeight(),
+                                                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
+                      {
+                          MultiPassScaler->SetBufferState(InCommandList,
+                                                          D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                          return MultiPassScaler->Buffer();
+                      }
+
+                      return nullptr;
+                  }
+
                   if (SecondUpscaler->CreateInputBuffer(nextOutput, NRSourceWidth(), NRSourceHeight()))
                   {
                       SecondUpscaler->SetInputBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -166,6 +202,14 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   // The model, at render resolution, on what the first pass produced.
                   DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, NRSourceWidth(),
                                                NRSourceHeight());
+
+                  if (spatialEnlarge)
+                  {
+                      MultiPassScaler->SetBufferState(InCommandList,
+                                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                      return MultiPassScaler->Dispatch(InCommandList, input, output);
+                  }
+
 
                   if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
                                                      DisplayWidth(), DisplayHeight(),

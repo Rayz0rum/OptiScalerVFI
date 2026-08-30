@@ -303,6 +303,24 @@ class Config
     // See IFeature::NRFinalPassForwardsJitter.
     CustomOptional<uint32_t> DlssNrMultiPassJitter { 0 };
 
+    // How the multi-pass chain performs its enlargement.
+    //
+    // 0 a second DLSS Super Resolution feature, 1 a spatial filter.
+    //
+    // Spatial by default, because the temporal option cannot work well here and that is structural
+    // rather than a bug. The first pass -- DLAA or Ray Reconstruction -- resolves the game's jitter,
+    // so what reaches the enlargement is grid-aligned and there is no subpixel variation left for a
+    // temporal upscaler to accumulate. It reconstructs from one sample position per pixel, forever the
+    // same, while the model re-decides detail underneath it: soft, and warping whenever the camera
+    // moves. Chaining two temporal passes cannot preserve jitter for the second one.
+    //
+    // A spatial filter needs none of that. It is still limited to the detail the first pass produced,
+    // so it is no sharper -- but it is steady, which the temporal path is not.
+    //
+    // The temporal option is kept because it is what the arrangement was originally specified as, and
+    // a title whose first pass leaves more for it to work with may yet prefer it.
+    CustomOptional<uint32_t> DlssNrMultiPassEnlarge { 1 };
+
     // Forces DLSSNR.Reset every frame, as a diagnostic.
     //
     // The model takes motion vectors and a Reset, and neither means anything to a pass without

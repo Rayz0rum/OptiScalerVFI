@@ -183,6 +183,27 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nthe real offsets are forwarded regardless: DLSS cancels the baked offset"
                                "\nusing these values, and zeroing them would leave it uncancelled, which"
                                "\nis worse. The log says when that happened.");
+
+                static const char* enlargeNames[] = { "DLSS Super Resolution", "Spatial (Recommended)" };
+                int enlarge = (int) config->DlssNrMultiPassEnlarge.value_or_default();
+
+                if (ImGui::Combo("Enlargement", &enlarge, enlargeNames, IM_ARRAYSIZE(enlargeNames)))
+                    config->DlssNrMultiPassEnlarge = (uint32_t) enlarge;
+
+                HelpMarker("How the chain gets from the first pass's resolution to the display."
+                               "\n\nThe first pass resolves the game's jitter -- that is what DLAA and Ray"
+                               "\nReconstruction are for -- so what reaches the enlargement is"
+                               "\ngrid-aligned, with no subpixel variation left."
+                               "\n\nA second DLSS pass then reconstructs from one sample position per"
+                               "\npixel, identical every frame, while the model re-decides detail"
+                               "\nunderneath it. That is soft, and it warps whenever the camera moves."
+                               "\nChaining two temporal passes cannot preserve jitter for the second"
+                               "\none: it is a property of the arrangement, not a fault in it."
+                               "\n\nThe spatial filter asks for no jitter and keeps no history, so"
+                               "\nneither failure is available to it. It is no sharper -- both are"
+                               "\nlimited to what the first pass produced -- but it is steady."
+                               "\n\nIf you want DLSS doing the enlargement, use Upscale with DLSS-SR"
+                               "\ninstead: one temporal pass, with the game's jitter intact.");
             }
 
             if (selected == DlssNr::Mode::MultiPassCustom)
