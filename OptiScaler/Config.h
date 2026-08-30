@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dlssnr/DlssNr_Switch.h"
+#include "dlssnr/DlssNr_Modes.h"
 #include "SysUtils.h"
 #include "State.h"
 
@@ -259,6 +260,33 @@ class Config
     // DLSS Neural Rendering: a detail-synthesis pass over the upscaler's output. Off by default -- it is
     // an undocumented feature driven directly through its snippet, not something NVIDIA exposes.
     CustomOptional<bool> DlssNrEnabled { false };
+
+    // --- Where the pass sits relative to the upscaler -------------------------------------------
+    //
+    // 0 post-process (the default, and the only one that needs nothing from the upscaler)
+    // 1 upscale with DLSS-SR: the model runs at render resolution, SR enlarges its output
+    // 2 multi-pass: a 1:1 first pass, the model, then a second SR feature does the enlargement
+    // 3 multi-pass with the first pass's resolution lowered, to buy back what the second costs
+    //
+    // Anything but 0 changes how OptiScaler's upscaler feature is created, so these apply to
+    // OptiScaler's own upscalers and not to a game's native DLSS passing straight through.
+    CustomOptional<uint32_t> DlssNrMode { 0 };
+
+    // Which upscaler the first multi-pass pass is: 0 Ray Reconstruction, 1 Super Resolution.
+    // OptiScaler does not substitute one for the other, so this states what the game is set up for;
+    // a mismatch falls back to post-process rather than half-applying the arrangement.
+    CustomOptional<uint32_t> DlssNrFeature1Pipeline { 0 };
+
+    // The first pass's height as a percentage of the DISPLAY height, in multi-pass custom only.
+    //
+    // Applied when the button next to the slider is pressed, never while it is being dragged: this
+    // rebuilds both features, and acting on every intermediate value would burn through the driver's
+    // create-time latches until the model stopped responding.
+    //
+    // 0 means leave it at the game's render resolution. The floor is Ultra Performance -- one third
+    // of the display height -- because below that the first pass has less to work with than any
+    // shipping DLSS preset would hand it, and nothing downstream can invent what was discarded.
+    CustomOptional<int> DlssNrFeature1Scale { 0 };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
     CustomOptional<int> DlssNrToggleKey { UnboundKey };

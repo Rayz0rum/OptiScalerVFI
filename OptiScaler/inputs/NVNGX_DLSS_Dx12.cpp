@@ -1187,9 +1187,25 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     const NVSDK_NGX_Result optiResult = TryEvaluateOptiFeature(InCmdList, InFeatureHandle, InParameters, InCallback);
 
 #if OPTI_DLSSNR
-    // Same pass, for OptiScaler's own upscalers rather than native DLSS.
+    /*
+     * Same pass, for OptiScaler's own upscalers rather than native DLSS.
+     *
+     * Only in the post-process arrangement. The reordered and multi-pass modes
+     * have already run the model -- before the upscale, or inside the feature's
+     * own pipeline -- and running it a second time here would enhance an
+     * enhanced frame, at twice the cost.
+     *
+     * State::currentFeature is what those modes are configured on; with native
+     * DLSS passing straight through there is no such feature and no way to
+     * reorder anything, so this stays the only placement available.
+     */
     if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration)
-        DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+    {
+        auto* current = State::Instance().currentFeature;
+
+        if (current == nullptr || current->NREffectiveMode() == DlssNr::Mode::PostProcess)
+            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+    }
 #endif
 
     return optiResult;

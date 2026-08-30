@@ -2,6 +2,150 @@
 #include <Config.h>
 #include "IFeature.h"
 
+
+#if OPTI_DLSSNR
+
+DlssNr::Mode IFeature::NREffectiveMode() const
+{
+    auto mode = DlssNr::ConfiguredMode();
+
+    if (!Config::Instance()->DlssNrEnabled.value_or_default())
+        return DlssNr::Mode::PostProcess;
+
+    if (!DlssNr::UsesTwoFeatures(mode))
+        return mode;
+
+    /*
+     * The selected pipeline has to match the upscaler that is actually running.
+     * OptiScaler does not substitute one for the other: Ray Reconstruction
+     * needs G-buffer inputs a Super Resolution integration never supplies, and
+     * running Super Resolution where the game set up for RR would hand the model
+     * an undenoised path-traced signal.
+     *
+     * A mismatch falls back to the conventional ordering rather than
+     * half-applying the arrangement, which would clear flags on one feature
+     * while never creating the other.
+     */
+    const bool rrActive = GetUpscalerType() == Upscaler::DLSSD;
+    const bool wantsRr = Config::Instance()->DlssNrFeature1Pipeline.value_or_default() ==
+                         (uint32_t) DlssNr::Feature1Pipeline::RayReconstruction;
+
+    if (wantsRr != rrActive)
+    {
+        static bool warned = false;
+
+        if (!warned)
+        {
+            warned = true;
+            LOG_WARN("DLSS-NR: multi-pass is set to the {} pipeline but the active upscaler is {}; using "
+                     "the conventional ordering instead",
+                     wantsRr ? "Ray Reconstruction" : "Super Resolution", rrActive ? "RR" : "not RR");
+        }
+
+        return DlssNr::Mode::PostProcess;
+    }
+
+    return mode;
+}
+
+/*
+ * The 1:1 size the first pass runs at.
+ *
+ * Equals the game's render resolution in every mode except Multi-pass Custom,
+ * where it can be lowered to make that pass cheaper. The result is brought back
+ * up to render resolution afterwards, so this trades the first pass's quality
+ * for its cost and changes nothing downstream.
+ *
+ * The floor is Ultra Performance relative to the DISPLAY resolution -- one third
+ * of it -- because below that the first pass has less to work with than any
+ * shipping DLSS preset would ever hand it, and the filter afterwards cannot
+ * invent what was thrown away. The ceiling is the render resolution itself:
+ * feeding the first pass an upsampled image would cost more and add nothing.
+ */
+void IFeature::NRFeature1Size(unsigned int& outWidth, unsigned int& outHeight) const
+{
+    /*
+     * _renderWidth may already have been moved down to the first pass's size by
+     * SetInitParameters, so the preserved source is what has to be read here --
+     * otherwise a second call clamps against an already-clamped value and drifts
+     * downwards a little more every time.
+     */
+    outWidth = NRSourceWidth();
+    outHeight = NRSourceHeight();
+
+    if (NREffectiveMode() != DlssNr::Mode::MultiPassCustom)
+        return;
+
+    if (outHeight == 0 || _displayHeight == 0)
+        return;
+
+    const int percent = Config::Instance()->DlssNrFeature1Scale.value_or_default();
+
+    // 0 means "leave it at render resolution", which is the no-resample case.
+    if (percent <= 0)
+        return;
+
+    const unsigned int floorHeight = _displayHeight / 3; // Ultra Performance
+    unsigned int wanted = (unsigned int) (((uint64_t) _displayHeight * (uint64_t) percent) / 100ull);
+
+    if (wanted < floorHeight)
+        wanted = floorHeight;
+
+    // Never above the render resolution -- there is nothing to gain.
+    if (wanted >= outHeight)
+        return;
+
+    // Keep it even; odd extents upset the filtering at the edges.
+    outHeight = wanted & ~1u;
+
+    if (outHeight < 32)
+        outHeight = 32;
+
+    outWidth = (unsigned int) (((uint64_t) NRSourceWidth() * (uint64_t) outHeight) /
+                               (uint64_t) NRSourceHeight()) &
+               ~1u;
+
+    if (outWidth < 32)
+        outWidth = 32;
+}
+
+bool IFeature::NRApplyFeature1Hold()
+{
+    if (!NRUsesTwoFeatures())
+        return false;
+
+    if (_nrSourceWidth == 0 || _nrSourceHeight == 0)
+        return false;
+
+    unsigned int width = 0;
+    unsigned int height = 0;
+    NRFeature1Size(width, height);
+
+    if (width == 0 || height == 0)
+        return false;
+
+    if (_targetWidth != width || _targetHeight != height)
+    {
+        LOG_DEBUG("DLSS-NR multi-pass: restoring the first pass's 1:1 target, {}x{} rather than {}x{}",
+                  width, height, _targetWidth, _targetHeight);
+    }
+
+    _targetWidth = width;
+    _targetHeight = height;
+
+    return true;
+}
+
+bool IFeature::NRFeature1IsResampled() const
+{
+    unsigned int width = 0;
+    unsigned int height = 0;
+    NRFeature1Size(width, height);
+
+    return width != NRSourceWidth() || height != NRSourceHeight();
+}
+
+#endif // OPTI_DLSSNR
 void IFeature::SetHandle(unsigned int InHandleId)
 {
     _handle = new NVSDK_NGX_Handle { InHandleId };
@@ -84,6 +228,37 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
             _initFlags.AutoExposure = _featureFlags & NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
         }
 
+#if OPTI_DLSSNR
+        /*
+         * What the game's own frame is, recorded before the override below can
+         * change what IsHdr() reports. The colour codec branches on this: reading
+         * the overridden flag would make the encode a no-op on exactly the frames
+         * that most need it, and the model would then be shown a linear frame it
+         * was never trained on while the pass appeared to do nothing.
+         */
+        _nrGameIsHdr = _initFlags.IsHdr;
+
+        /*
+         * In the reordered arrangement the model runs first and hands the
+         * upscaler a tone-mapped, display-referred picture. Telling it the frame
+         * is still linear HDR blows out the colour; leaving AutoExposure on has
+         * it metering a picture that has already been exposed. Both are latched
+         * at creation, which is why NRNeedsRebuildForOrdering exists.
+         *
+         * The exposure the upscaler needs in AutoExposure's place is supplied by
+         * the module, as an explicit 1x1 identity.
+         */
+        _nrReorderedAtCreate = NRWantsReorderedFlags();
+
+        if (_nrReorderedAtCreate)
+        {
+            _initFlags.IsHdr = false;
+            _initFlags.AutoExposure = false;
+            LOG_INFO("DLSS-NR: the model runs before the upscale, so this feature is created with IsHDR "
+                     "and AutoExposure cleared");
+        }
+#endif
+
         LOG_INFO("Init Flag AutoExposure: {}", _initFlags.AutoExposure);
         LOG_INFO("Init Flag DepthInverted: {}", _initFlags.DepthInverted);
         LOG_INFO("Init Flag IsHdr: {}", _initFlags.IsHdr);
@@ -149,6 +324,43 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
             _renderHeight = height;
         }
 
+
+#if OPTI_DLSSNR
+        /*
+         * The game's own render resolution, before the multi-pass hold can move
+         * _renderWidth down. Everything after the first pass works at this size:
+         * the depth and motion vectors the game supplies are here, the model runs
+         * here, and the second feature enlarges from here to display.
+         */
+        _nrSourceWidth = _renderWidth;
+        _nrSourceHeight = _renderHeight;
+
+        /*
+         * Multi-pass holds the first feature at 1:1 -- the second one performs
+         * the single enlargement in the frame. In the Custom variant the first
+         * pass may sit below the game's render resolution, in which case its
+         * inputs are resampled down and its result brought back up before the
+         * model sees it.
+         */
+        if (NRUsesTwoFeatures())
+        {
+            unsigned int f1Width = 0;
+            unsigned int f1Height = 0;
+            NRFeature1Size(f1Width, f1Height);
+
+            if (f1Width != 0 && f1Height != 0)
+            {
+                _renderWidth = f1Width;
+                _renderHeight = f1Height;
+                _targetWidth = f1Width;
+                _targetHeight = f1Height;
+
+                LOG_INFO("DLSS-NR multi-pass: the first pass runs 1:1 at {}x{} (the game renders {}x{}), "
+                         "and a second feature enlarges to {}x{}",
+                         f1Width, f1Height, _nrSourceWidth, _nrSourceHeight, _displayWidth, _displayHeight);
+            }
+        }
+#endif
         _perfQualityValue = (NVSDK_NGX_PerfQuality_Value) pqValue;
 
         LOG_INFO("Render Resolution: {0}x{1}, Display Resolution {2}x{3}, Quality: {4}", _renderWidth, _renderHeight,

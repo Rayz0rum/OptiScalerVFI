@@ -120,6 +120,101 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::Spacing();
         ImGui::PushItemWidth(220.0f * menuResScale);
 
+        ImGui::SeparatorText("Placement");
+
+        {
+            static const char* modeNames[] = { "Post-process (Recommended)", "Upscale with DLSS-SR",
+                                               "Multi-pass Rendering",
+                                               "Multi-pass Rendering (Custom)" };
+
+            int mode = (int) config->DlssNrMode.value_or_default();
+
+            if (ImGui::Combo("Placement", &mode, modeNames, IM_ARRAYSIZE(modeNames)))
+                config->DlssNrMode = (uint32_t) mode;
+
+            HelpMarker("Where the model sits relative to the upscaler."
+                           "\n\nPost-process runs it on the finished frame. It is the only one that needs"
+                           "\nnothing from the upscaler, so it is also the only one that works when a game"
+                           "\nis using its own DLSS and OptiScaler is passing it straight through."
+                           "\n\nUpscale with DLSS-SR runs the model at render resolution and lets Super"
+                           "\nResolution enlarge its result, so the upscaler's temporal accumulation works"
+                           "\non enhanced pixels instead of the model re-deciding detail on every enlarged"
+                           "\nframe. The upscaler's feature is created with IsHDR and AutoExposure cleared"
+                           "\nto match, so changing to or from this rebuilds it."
+                           "\n\nMulti-pass runs a first pass 1:1 -- denoising if that is Ray Reconstruction,"
+                           "\nantialiasing as DLAA if it is Super Resolution -- then the model, then a"
+                           "\nsecond Super Resolution feature does the single enlargement. It costs a"
+                           "\nsecond set of temporal history and the memory for it."
+                           "\n\nAnything but post-process applies to OptiScaler's own upscalers only.");
+
+            const auto selected = (DlssNr::Mode) config->DlssNrMode.value_or_default();
+
+            if (DlssNr::UsesTwoFeatures(selected))
+            {
+                static const char* pipelineNames[] = { "Ray Reconstruction", "Super Resolution" };
+                int pipeline = (int) config->DlssNrFeature1Pipeline.value_or_default();
+
+                if (ImGui::Combo("First pass", &pipeline, pipelineNames, IM_ARRAYSIZE(pipelineNames)))
+                    config->DlssNrFeature1Pipeline = (uint32_t) pipeline;
+
+                HelpMarker("Which upscaler the first pass is."
+                               "\n\nThis states what the game is set up for; it does not switch anything."
+                               "\nOptiScaler cannot substitute one for the other -- Ray Reconstruction needs"
+                               "\nG-buffer inputs a Super Resolution integration never supplies -- so a"
+                               "\nmismatch falls back to post-process rather than half-applying the"
+                               "\narrangement, and says so in the log.");
+            }
+
+            if (selected == DlssNr::Mode::MultiPassCustom)
+            {
+                /*
+                 * The slider edits a pending value and only the button commits it.
+                 *
+                 * Everything this changes is latched when a feature is created, and it
+                 * changes two of them: the first pass and the second upscaler both have
+                 * to be rebuilt. Acting on each intermediate value as the slider moved
+                 * would rebuild both dozens of times in a drag and exhaust the driver's
+                 * create-time latches, after which the model stops responding until the
+                 * process restarts.
+                 */
+                static int pending = -1;
+                const int applied = config->DlssNrFeature1Scale.value_or_default();
+
+                if (pending < 0)
+                    pending = applied;
+
+                ImGui::SliderInt("First pass scale %", &pending, 0, 100);
+
+                HelpMarker("The first pass's height as a percentage of the display height."
+                               "\n\n0 leaves it at the game's own render resolution, which is the plain"
+                               "\nmulti-pass arrangement. Lower buys back what the second feature costs."
+                               "\n\nThe floor is Ultra Performance -- a third of the display height. Below"
+                               "\nthat the first pass has less to work with than any shipping DLSS preset"
+                               "\nwould hand it, and nothing downstream can invent what was discarded, so"
+                               "\nthe value is clamped rather than obeyed."
+                               "\n\nNothing happens until you press Apply: this rebuilds both features, and"
+                               "\ndoing that on every value the slider passes through would burn out the"
+                               "\ndriver's create-time latches.");
+
+                ImGui::SameLine();
+
+                const bool dirty = pending != applied;
+
+                ImGui::BeginDisabled(!dirty);
+
+                if (ImGui::Button("Apply Scale"))
+                    config->DlssNrFeature1Scale = pending;
+
+                ImGui::EndDisabled();
+
+                if (dirty)
+                {
+                    ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f), "Applied: %d%%. Press Apply to change.",
+                                       applied);
+                }
+            }
+        }
+
         ImGui::SeparatorText("Cost");
 
         static const char* scaleNames[] = { "Full resolution", "75%", "50%", "33%" };

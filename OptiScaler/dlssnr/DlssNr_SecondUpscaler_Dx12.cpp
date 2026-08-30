@@ -1,0 +1,393 @@
+#include <pch.h>
+
+#include "DlssNr_Switch.h"
+
+#if OPTI_DLSSNR
+
+
+#include "DlssNr_SecondUpscaler_Dx12.h"
+
+#include <Config.h>
+#include <State.h>
+#include <proxies/NVNGX_Proxy.h>
+
+#include <nvsdk_ngx_defs.h>
+
+DlssNr_SecondUpscaler_Dx12::DlssNr_SecondUpscaler_Dx12(std::string name, ID3D12Device* device)
+    : _name(std::move(name)), _device(device)
+{
+    if (device != nullptr)
+        GpuTime = std::make_unique<GpuTime_Dx12>(device);
+}
+
+DlssNr_SecondUpscaler_Dx12::~DlssNr_SecondUpscaler_Dx12() { Release(); }
+
+bool DlssNr_SecondUpscaler_Dx12::CreateInputBuffer(ID3D12Resource* reference, uint32_t renderWidth, uint32_t renderHeight)
+{
+    if (_device == nullptr || reference == nullptr || renderWidth == 0 || renderHeight == 0)
+        return false;
+
+    if (_inputBuffer != nullptr)
+    {
+        auto existing = _inputBuffer->GetDesc();
+        if (existing.Width == renderWidth && existing.Height == renderHeight)
+            return true;
+
+        _inputBuffer->Release();
+        _inputBuffer = nullptr;
+    }
+
+    auto desc = reference->GetDesc();
+    desc.Width = renderWidth;
+    desc.Height = renderHeight;
+
+    // Written by the NR pass, read by this feature.
+    desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    D3D12_HEAP_PROPERTIES heapProperties;
+    D3D12_HEAP_FLAGS heapFlags;
+
+    if (reference->GetHeapProperties(&heapProperties, &heapFlags) != S_OK)
+        return false;
+
+    HRESULT hr = _device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &desc,
+                                                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                  IID_PPV_ARGS(&_inputBuffer));
+
+    if (hr != S_OK)
+    {
+        LOG_ERROR("{}: input buffer CreateCommittedResource: {:X}", _name, (UINT64) hr);
+        _inputBuffer = nullptr;
+        return false;
+    }
+
+    _inputBufferState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    return true;
+}
+
+void DlssNr_SecondUpscaler_Dx12::SetInputBufferState(ID3D12GraphicsCommandList* cmdList, D3D12_RESOURCE_STATES state)
+{
+    if (_inputBuffer == nullptr || cmdList == nullptr || _inputBufferState == state)
+        return;
+
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = _inputBuffer;
+    barrier.Transition.StateBefore = _inputBufferState;
+    barrier.Transition.StateAfter = state;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmdList->ResourceBarrier(1, &barrier);
+
+    _inputBufferState = state;
+}
+
+void DlssNr_SecondUpscaler_Dx12::Release()
+{
+    for (auto** res : { &_inputBuffer, &_exposure, &_exposureUpload })
+    {
+        if (*res != nullptr)
+        {
+            (*res)->Release();
+            *res = nullptr;
+        }
+    }
+
+    _exposureUploaded = false;
+
+    if (_handle != nullptr)
+    {
+        if (auto release = NVNGXProxy::D3D12_ReleaseFeature())
+            release(_handle);
+
+        _handle = nullptr;
+    }
+
+    if (_params != nullptr)
+    {
+        if (auto destroy = NVNGXProxy::D3D12_DestroyParameters())
+            destroy(_params);
+
+        _params = nullptr;
+    }
+
+    _renderWidth = 0;
+    _renderHeight = 0;
+    _displayWidth = 0;
+    _displayHeight = 0;
+    _perfQuality = -1;
+}
+
+bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth,
+                                           uint32_t renderHeight, uint32_t displayWidth, uint32_t displayHeight,
+                                           int perfQuality, bool depthInverted, bool jitteredMV)
+{
+    if (_createFailed || cmdList == nullptr || renderWidth == 0 || displayWidth == 0)
+        return false;
+
+    bool geometryMatches = _handle != nullptr && _renderWidth == renderWidth && _renderHeight == renderHeight &&
+                           _displayWidth == displayWidth && _displayHeight == displayHeight &&
+                           _perfQuality == perfQuality && _depthInverted == depthInverted &&
+                           _jitteredMV == jitteredMV;
+
+    if (geometryMatches)
+        return true;
+
+    auto createFeature = NVNGXProxy::D3D12_CreateFeature();
+    auto allocParams = NVNGXProxy::D3D12_AllocateParameters();
+
+    if (createFeature == nullptr || allocParams == nullptr)
+    {
+        LOG_WARN("{}: NGX has no D3D12 CreateFeature/AllocateParameters", _name);
+        _createFailed = true;
+        return false;
+    }
+
+    // Rebuild rather than mutate: the flags below are fixed at creation.
+    if (_handle != nullptr)
+        Release();
+
+    if (_params == nullptr && (allocParams(&_params) != NVSDK_NGX_Result_Success || _params == nullptr))
+    {
+        LOG_ERROR("{}: could not allocate a parameter block", _name);
+        _createFailed = true;
+        return false;
+    }
+
+    /*
+     * IsHDR is cleared deliberately: this feature consumes a tone mapped
+     * image. AutoExposure is cleared with it, and an explicit identity
+     * exposure is bound per frame instead - keeping AutoExposure would make
+     * DLSS estimate an exposure and divide an already-normalised picture
+     * toward black, and clearing it while supplying nothing leaves it with no
+     * exposure source at all, which is also black.
+     */
+    int flags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
+
+    if (depthInverted)
+        flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
+
+    if (jitteredMV)
+        flags |= NVSDK_NGX_DLSS_Feature_Flags_MVJittered;
+
+    _params->Set(NVSDK_NGX_Parameter_Width, renderWidth);
+    _params->Set(NVSDK_NGX_Parameter_Height, renderHeight);
+    _params->Set(NVSDK_NGX_Parameter_OutWidth, displayWidth);
+    _params->Set(NVSDK_NGX_Parameter_OutHeight, displayHeight);
+    _params->Set(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, flags);
+    _params->Set(NVSDK_NGX_Parameter_PerfQualityValue, perfQuality);
+    _params->Set(NVSDK_NGX_Parameter_CreationNodeMask, 1);
+    _params->Set(NVSDK_NGX_Parameter_VisibilityNodeMask, 1);
+    _params->Set(NVSDK_NGX_Parameter_Sharpness, 0.0f);
+
+    NVSDK_NGX_Result result =
+        createFeature(cmdList, NVSDK_NGX_Feature_SuperSampling, _params, &_handle);
+
+    if (result != NVSDK_NGX_Result_Success || _handle == nullptr)
+    {
+        LOG_ERROR("{}: CreateFeature failed: 0x{:X}", _name, (unsigned) result);
+        _handle = nullptr;
+        _createFailed = true;
+        return false;
+    }
+
+    _renderWidth = renderWidth;
+    _renderHeight = renderHeight;
+    _displayWidth = displayWidth;
+    _displayHeight = displayHeight;
+    _perfQuality = perfQuality;
+    _depthInverted = depthInverted;
+    _jitteredMV = jitteredMV;
+
+    LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure", _name, renderWidth, renderHeight,
+             displayWidth, displayHeight);
+
+    return true;
+}
+
+ID3D12Resource* DlssNr_SecondUpscaler_Dx12::IdentityExposure(ID3D12GraphicsCommandList* cmdList)
+{
+    if (_exposure != nullptr && _exposureUploaded)
+        return _exposure;
+
+    if (_device == nullptr || cmdList == nullptr)
+        return nullptr;
+
+    if (_exposure == nullptr)
+    {
+        D3D12_HEAP_PROPERTIES defaultHeap = {};
+        defaultHeap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = 1;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R32_FLOAT;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        HRESULT hr = _device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                      D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&_exposure));
+
+        if (hr != S_OK)
+        {
+            LOG_ERROR("identity exposure CreateCommittedResource: {:X}", (UINT64) hr);
+            return nullptr;
+        }
+
+        D3D12_HEAP_PROPERTIES uploadHeap = {};
+        uploadHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+
+        // One row, padded to D3D12's copy alignment.
+        D3D12_RESOURCE_DESC uploadDesc = {};
+        uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        uploadDesc.Width = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+        uploadDesc.Height = 1;
+        uploadDesc.DepthOrArraySize = 1;
+        uploadDesc.MipLevels = 1;
+        uploadDesc.Format = DXGI_FORMAT_UNKNOWN;
+        uploadDesc.SampleDesc.Count = 1;
+        uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        hr = _device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &uploadDesc,
+                                              D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                              IID_PPV_ARGS(&_exposureUpload));
+
+        if (hr != S_OK)
+        {
+            LOG_ERROR("identity exposure upload heap: {:X}", (UINT64) hr);
+            _exposure->Release();
+            _exposure = nullptr;
+            return nullptr;
+        }
+
+        /*
+         * Read back constants you assume. The whole point of this texture is
+         * that it holds exactly 1.0; if the upload does not land, every image
+         * comparison downstream is being made against garbage.
+         */
+        void* mapped = nullptr;
+        D3D12_RANGE noRead = { 0, 0 };
+
+        if (_exposureUpload->Map(0, &noRead, &mapped) == S_OK && mapped != nullptr)
+        {
+            const float one = 1.0f;
+            memcpy(mapped, &one, sizeof(one));
+            _exposureUpload->Unmap(0, nullptr);
+        }
+    }
+
+    D3D12_TEXTURE_COPY_LOCATION dst = {};
+    dst.pResource = _exposure;
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.SubresourceIndex = 0;
+
+    D3D12_TEXTURE_COPY_LOCATION src = {};
+    src.pResource = _exposureUpload;
+    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    src.PlacedFootprint.Offset = 0;
+    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+    src.PlacedFootprint.Footprint.Width = 1;
+    src.PlacedFootprint.Footprint.Height = 1;
+    src.PlacedFootprint.Footprint.Depth = 1;
+    src.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+
+    cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barrier.Transition.pResource = _exposure;
+    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    cmdList->ResourceBarrier(1, &barrier);
+
+    _exposureUploaded = true;
+
+    LOG_INFO("{}: identity exposure uploaded (1x1 R32_SFLOAT = 1.0)", _name);
+
+    return _exposure;
+}
+
+bool DlssNr_SecondUpscaler_Dx12::Evaluate(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* color,
+                                      ID3D12Resource* output, ID3D12Resource* depth, ID3D12Resource* mvec,
+                                      ID3D12Resource* exposure, float jitterX, float jitterY, float mvScaleX,
+                                      float mvScaleY, bool reset)
+{
+    if (_handle == nullptr || _params == nullptr || cmdList == nullptr)
+        return false;
+
+    if (color == nullptr || output == nullptr || depth == nullptr || mvec == nullptr)
+        return false;
+
+    // The upscaler cannot write its own input.
+    if (color == output)
+    {
+        LOG_WARN("{}: colour and output are the same resource", _name);
+        return false;
+    }
+
+    auto evaluate = NVNGXProxy::D3D12_EvaluateFeature();
+    if (evaluate == nullptr)
+        return false;
+
+    _params->Set(NVSDK_NGX_Parameter_Color, color);
+    _params->Set(NVSDK_NGX_Parameter_Output, output);
+    _params->Set(NVSDK_NGX_Parameter_Depth, depth);
+    _params->Set(NVSDK_NGX_Parameter_MotionVectors, mvec);
+
+    // Created with AutoExposure cleared, so this is not optional. The caller may supply one; with
+    // nothing to offer, the identity below is what keeps the frame from resolving toward black.
+    if (exposure == nullptr)
+        exposure = IdentityExposure(cmdList);
+
+    if (exposure != nullptr)
+        _params->Set(NVSDK_NGX_Parameter_ExposureTexture, exposure);
+
+    /*
+     * No jitter for this feature.
+     *
+     * Feature 1 ran at 1:1 with the game's jitter and resolved it: what arrives
+     * here is a settled image with no residual sub-pixel offset. Passing the
+     * game's jitter on would tell this feature the input is still jittered, and
+     * it would displace its samples by an offset that is not there - a
+     * different offset every frame, which reads as the picture warping and
+     * swimming rather than as softness.
+     *
+     * Motion vectors still apply: they describe scene motion, which is as true
+     * for a resolved image as for a jittered one.
+     */
+    (void) jitterX;
+    (void) jitterY;
+
+    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, 0.0f);
+    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.0f);
+    _params->Set(NVSDK_NGX_Parameter_MV_Scale_X, mvScaleX);
+    _params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, mvScaleY);
+
+    _params->Set(NVSDK_NGX_Parameter_Reset, reset ? 1 : 0);
+    _params->Set(NVSDK_NGX_Parameter_Sharpness, 0.0f);
+
+    // The subrect the upscaler should read. Render resolution, since this
+    // feature sits behind a pass that ran at render resolution.
+    _params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, _renderWidth);
+    _params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, _renderHeight);
+
+    GpuTime->Start(cmdList);
+
+    NVSDK_NGX_Result result = evaluate(cmdList, _handle, _params, nullptr);
+
+    GpuTime->End(cmdList);
+
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        LOG_ERROR("{}: EvaluateFeature failed: 0x{:X}", _name, (unsigned) result);
+        return false;
+    }
+
+    return true;
+}
+
+#endif // OPTI_DLSSNR

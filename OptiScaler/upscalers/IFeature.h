@@ -6,6 +6,7 @@
 
 #include <unordered_set>
 #include <Util.h>
+#include <dlssnr/DlssNr_Modes.h>
 
 #define DLSS_MOD_ID_OFFSET 1000000
 
@@ -91,6 +92,41 @@ class IFeature
     unsigned int _displayWidth = 0;
     unsigned int _displayHeight = 0;
 
+#if OPTI_DLSSNR
+    /*
+     * The game's own render resolution, kept because Multi-pass Custom moves
+     * _renderWidth/_renderHeight down to the first pass's size.
+     *
+     * Everything after that pass still works at the game's resolution: the depth
+     * and motion vectors it supplies are at this size, the model runs here, and
+     * the second Super Resolution feature enlarges from here to display. Zero
+     * until SetInitParameters has run.
+     */
+    unsigned int _nrSourceWidth = 0;
+    unsigned int _nrSourceHeight = 0;
+
+    /*
+     * Which arrangement this feature was actually created for.
+     *
+     * IsHDR and AutoExposure are latched at creation. Engines commonly decide
+     * whether to rebuild by comparing resolutions alone, so switching modes
+     * without checking this would leave a feature built for the wrong colour
+     * space -- washed-out colour with an unstable exposure, and no error
+     * anywhere to point at it.
+     */
+    bool _nrReorderedAtCreate = false;
+
+    /*
+     * Whether the GAME's own image is linear HDR, recorded before any override.
+     *
+     * IsHdr() reports the flag this feature was created with, and the reordered
+     * modes deliberately clear it to describe the tone-mapped image the upscaler
+     * will be handed. That is the wrong question for the colour codec, which
+     * needs to know what the frame actually is when the model sees it.
+     */
+    bool _nrGameIsHdr = false;
+#endif
+
     long _frameCount = 0;
     bool _featureFrozen = false;
     bool _moduleLoaded = false;
@@ -108,6 +144,75 @@ class IFeature
     virtual void SetInit(bool InValue) { _isInited = InValue; }
 
   public:
+
+#if OPTI_DLSSNR
+    /*
+     * The Neural Rendering arrangement actually in force for this feature.
+     *
+     * Multi-pass is defined as a 1:1 first pass with a second feature doing the
+     * enlargement, and the selected pipeline has to match the upscaler that is
+     * really running: OptiScaler does not substitute Ray Reconstruction for
+     * Super Resolution or the reverse, since RR needs G-buffer inputs an SR
+     * integration never supplies. A mismatch degrades to the conventional
+     * ordering rather than half-applying the arrangement -- which would clear
+     * IsHDR and AutoExposure on one feature while never creating the other,
+     * giving a black frame with nothing in the log to explain it.
+     */
+    DlssNr::Mode NREffectiveMode() const;
+
+    bool NRUsesTwoFeatures() const { return DlssNr::UsesTwoFeatures(NREffectiveMode()); }
+
+    /*
+     * Whether *this* feature has to be created with IsHDR and AutoExposure
+     * cleared. Only the single-feature reordering does; in multi-pass the first
+     * feature still sees the game's own linear frame, and the second one is
+     * created elsewhere with its own flags.
+     */
+    bool NRWantsReorderedFlags() const { return DlssNr::WantsReorderedFlags(NREffectiveMode()); }
+
+    /*
+     * True when the arrangement changed since this feature was built. Its flags
+     * are fixed at creation, so they are now wrong for the colour space it is
+     * being fed and only a rebuild can fix it.
+     *
+     * This must ask the same question SetInitParameters asked, or it answers
+     * "yes" forever and the backend rebuilds every frame.
+     */
+    bool NRNeedsRebuildForOrdering() const { return _nrReorderedAtCreate != NRWantsReorderedFlags(); }
+
+    /* The 1:1 size the first pass runs at, and whether that differs from the
+     * game's render resolution. See the implementation for the clamping rules. */
+    void NRFeature1Size(unsigned int& outWidth, unsigned int& outHeight) const;
+    bool NRFeature1IsResampled() const;
+
+    /*
+     * Re-apply the multi-pass 1:1 hold to the target resolution.
+     *
+     * SetInitParameters establishes it, but every upscaler's ProcessInitParams
+     * recomputes the target afterwards -- to the display size, or to that times
+     * the Output Scaling ratio -- and either branch silently undoes the hold.
+     * The feature then enlarges when it was supposed to run 1:1, and the second
+     * feature downstream, created expecting render resolution, receives a
+     * display-sized image and magnifies its corner by the upscale ratio.
+     *
+     * Returns true when it took ownership of the target, in which case the
+     * caller must not apply the Output Scaling multiplier either: this
+     * arrangement already contains exactly one enlargement, and a second would
+     * produce the upscale-downscale-upscale chain it exists to avoid.
+     */
+    bool NRApplyFeature1Hold();
+
+    /* The resolution everything after the first pass works at -- the game's own
+     * render resolution. Identical to RenderWidth/Height except in Multi-pass
+     * Custom, where the first pass has been moved below it. */
+    unsigned int NRSourceWidth() const { return _nrSourceWidth != 0 ? _nrSourceWidth : _renderWidth; }
+    unsigned int NRSourceHeight() const { return _nrSourceHeight != 0 ? _nrSourceHeight : _renderHeight; }
+
+    /* What the colour codec must branch on: whether the frame the model is about
+     * to see is linear HDR. Distinct from IsHdr(), which describes the flag this
+     * feature was created with. */
+    bool NRGameIsHdr() const { return _nrGameIsHdr; }
+#endif
     NVSDK_NGX_Handle* Handle() const { return _handle; };
     static unsigned int GetNextHandleId() { return handleCounter++; }
     int GetFeatureFlags() const { return _featureFlags; }

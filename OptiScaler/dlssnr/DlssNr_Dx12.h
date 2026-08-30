@@ -17,15 +17,21 @@ class Config;
 
 namespace DlssNr
 {
-// The model runs immediately after the game's upscaler, before the interface is drawn. It is shown a
-// display-referred proxy of that frame -- the sort of picture it was trained on -- and its answer is
-// composed back over the untouched original.
-// Runs the model over Output on the same command list, immediately after the upscaler has written it.
-// Called only for upscaler evaluates -- never for frame generation, which is the whole point.
+// Runs the model over the frame on the same command list, immediately after the upscaler has written
+// it. It is shown a display-referred proxy of that frame -- the sort of picture it was trained on --
+// and its answer is composed back over the untouched original. Called only for upscaler evaluates,
+// never for frame generation, which is the whole point.
+//
+// `targetOverride` names the image to work on instead of the parameter block's Output. The reordered
+// and multi-pass arrangements need it: in those the model runs at render resolution, on the upscaler's
+// input or on a first pass's 1:1 result, neither of which is what Output points at. Everything else
+// follows from the resource itself -- its extent decides the working size, and the motion vector scale
+// falls out at 1.0 because the guides are already in those pixels.
 //
 // Safe to call every frame; it builds what it needs on first use and disables itself for the session if
 // anything fails, rather than retrying into a crash.
-void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params);
+void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                          ID3D12Resource* targetOverride = nullptr);
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask

@@ -58,7 +58,29 @@ void DLSSFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
     InParameters->Set(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, featureFlags);
 
     // Resolution -----------------------------
-    if (Config::Instance()->OutputScalingEnabled.value_or_default() && (LowResMV() || RenderWidth() == DisplayWidth()))
+#if OPTI_DLSSNR
+    /*
+     * Multi-pass holds this feature at 1:1 and lets the second one enlarge.
+     *
+     * Checked before the branches below because both of them recompute the
+     * target -- to the display size, or to that times the Output Scaling ratio --
+     * and either would silently undo the hold. The feature would then enlarge
+     * when it was supposed to run 1:1, and the second feature, created expecting
+     * render resolution, would be handed a display-sized image and magnify its
+     * corner by the upscale ratio.
+     *
+     * The Output Scaling multiplier is deliberately not applied on top: this
+     * arrangement already contains exactly one enlargement, and a second would
+     * rebuild the upscale-downscale-upscale chain it exists to avoid.
+     */
+    if (NRApplyFeature1Hold())
+    {
+        LOG_DEBUG("DLSS-NR multi-pass: this feature stays at {}x{}", TargetWidth(), TargetHeight());
+    }
+    else
+#endif
+        if (Config::Instance()->OutputScalingEnabled.value_or_default() &&
+            (LowResMV() || RenderWidth() == DisplayWidth()))
     {
         LOG_DEBUG("Output Scaling is active");
 

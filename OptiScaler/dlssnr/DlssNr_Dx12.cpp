@@ -590,7 +590,8 @@ void RetryAfterFailure()
 
 }
 
-void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params)
+void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                          ID3D12Resource* targetOverride)
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
     const Config& cfg = *Config::Instance();
@@ -601,6 +602,13 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     ID3D12Resource* target = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
     ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
+
+    // The reordered and multi-pass arrangements work at render resolution, on the upscaler's input or
+    // on a first pass's 1:1 result, so the caller names the image rather than the parameter block. The
+    // rest follows from the resource: its extent sets the working size, and the motion vector scale
+    // comes out at 1.0 because the guides are already in those pixels.
+    if (targetOverride != nullptr)
+        target = targetOverride;
 
     // Without all three there is nothing to run on. This is not a failure -- some evaluates legitimately
     // carry none of it -- so it stays quiet and tries again next frame.

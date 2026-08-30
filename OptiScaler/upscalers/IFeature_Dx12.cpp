@@ -5,6 +5,7 @@
 
 #include "IFeature_Dx12.h"
 #include "State.h"
+#include <dlssnr/DlssNr.h>
 
 void IFeature_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
                                     D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState) const
@@ -97,6 +98,83 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
     // Order is important as that's the order of shader dispatch
     std::vector<ShaderPass> pipeline;
+
+#if OPTI_DLSSNR
+    /*
+     * Multi-pass: the model on the first pass's 1:1 result, then a second Super
+     * Resolution feature performing the single enlargement to display size.
+     *
+     * Pushed first so it sits closest to the upscaler -- the model wants the
+     * frame before Output Scaling or RCAS has been over it, and the enlargement
+     * has to happen before either of those makes sense.
+     *
+     * Two features rather than one because the requirements are contradictory
+     * within a single one: Ray Reconstruction refuses to be created without
+     * IsHDR, while an upscaler consuming the model's display-referred output
+     * needs it cleared. Nothing reconciles that in one feature; nothing prevents
+     * holding two.
+     */
+    const bool useMultiPass = NRUsesTwoFeatures() && Config::Instance()->DlssNrEnabled.value_or_default();
+
+    if (useMultiPass)
+    {
+        if (SecondUpscaler == nullptr)
+            SecondUpscaler = std::make_unique<DlssNr_SecondUpscaler_Dx12>("DLSS-NR Second Upscaler", Device);
+
+        pipeline.push_back(
+            { // Setup
+              [&](ID3D12Resource* nextOutput) -> ID3D12Resource*
+              {
+                  // The first pass writes here, at the game's render resolution;
+                  // this stage reads it and enlarges into nextOutput.
+                  if (SecondUpscaler->CreateInputBuffer(nextOutput, NRSourceWidth(), NRSourceHeight()))
+                  {
+                      SecondUpscaler->SetInputBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                      return SecondUpscaler->InputBuffer();
+                  }
+
+                  return nullptr;
+              },
+
+              // Dispatch
+              [&](ID3D12Resource* input, ID3D12Resource* output) -> bool
+              {
+                  if (paramDepth == nullptr || paramMotion == nullptr)
+                      return true;
+
+                  // The model, at render resolution, on what the first pass produced.
+                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input);
+
+                  if (!SecondUpscaler->EnsureCreated(InCommandList, NRSourceWidth(), NRSourceHeight(),
+                                                     DisplayWidth(), DisplayHeight(),
+                                                     (int) PerfQualityValue(), DepthInverted(), JitteredMV()))
+                  {
+                      // Without the enlargement the frame would be a render-resolution
+                      // image in the corner of a display-resolution buffer, so the mode
+                      // stands down rather than showing that.
+                      Config::Instance()->DlssNrMode.set_volatile_value((uint32_t) DlssNr::Mode::PostProcess);
+                      State::Instance().changeBackend[Handle()->Id] = true;
+                      return false;
+                  }
+
+                  SecondUpscaler->SetInputBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+                  float mvScaleX = 1.0f;
+                  float mvScaleY = 1.0f;
+                  InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &mvScaleX);
+                  InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &mvScaleY);
+
+                  /*
+                   * Zero jitter. The first pass has already resolved the game's
+                   * jitter, so passing it again tells this feature the image is
+                   * offset when it is not -- which reads on screen as the picture
+                   * swimming against the camera.
+                   */
+                  return SecondUpscaler->Evaluate(InCommandList, input, output, paramDepth, paramMotion,
+                                                  nullptr, 0.0f, 0.0f, mvScaleX, mvScaleY, false);
+              } });
+    }
+#endif
 
     if (useOutputScaling)
     {
@@ -238,6 +316,31 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
     // Upscaler will write to the first active shader, or just output
     InParameters->Set(NVSDK_NGX_Parameter_Output, currentTarget);
+
+
+#if OPTI_DLSSNR
+    /*
+     * The reordered arrangement: the model runs on the upscaler's own input, at
+     * render resolution, and Super Resolution then enlarges its result.
+     *
+     * Placed here rather than after EvaluateInternal because that is the whole
+     * point of the mode -- the model sees a frame that has not been magnified,
+     * and the upscaler's temporal accumulation then works on enhanced pixels
+     * instead of the model re-deciding detail on every enlarged frame.
+     *
+     * The feature was created with IsHDR and AutoExposure cleared to match, in
+     * SetInitParameters. Colour is named explicitly because Output at this point
+     * is a pipeline buffer the upscaler has not written yet.
+     */
+    if (NREffectiveMode() == DlssNr::Mode::UpscaleWithSR)
+    {
+        ID3D12Resource* paramColor = nullptr;
+        InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
+
+        if (paramColor != nullptr)
+            DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, paramColor);
+    }
+#endif
 
     UpscalerTime->Start(InCommandList);
 
