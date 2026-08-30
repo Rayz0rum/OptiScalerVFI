@@ -31,6 +31,33 @@ Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchan
 
 ## Fixed since the last build
 
+**Upscale with DLSS-SR no longer shows flickering coloured blocks.** Borderlands 4 allocates its
+colour buffer at display size and renders into the top-left 1268×713 of it. In post-process the model
+works on the finished output, where the whole allocation is valid; in the reordered arrangements it
+works on the upscaler's *input*, and the pass was sized from the resource extent — so it encoded
+about 1.3 megapixels of memory nobody had written and composed the result onto the frame. The caller
+now names the render rect.
+
+**The final Super Resolution pass in a multi-pass chain no longer gets the first pass's jitter.**
+After the first pass resolves, its output is grid-aligned, so a per-frame Halton offset describes a
+subpixel displacement the image no longer has; reprojecting against it shimmers at the period of the
+jitter sequence — the thing the first pass was there to remove.
+
+One code path serves both pipelines: from the final pass's point of view the only upstream difference
+is which feature produced the resolved 1:1 image.
+
+- **Final pass jitter** (Placement section, and `MultiPassJitter` in the ini) — zero by default,
+  or forward the game's real offsets. Read every frame, so it can be A/B'd without a restart.
+- The game's render-side jitter is never touched. The first pass, DLAA or Ray Reconstruction, always
+  receives the game's sequence intact along with its create flags and motion vector scales.
+- If a game declares `MVJittered`, the setting is ignored and the real offsets are forwarded: DLSS
+  cancels the baked offset using those values, and zeroing them leaves a full offset uncancelled
+  every frame. The log says when that happened. Borderlands 4 does *not* set it (create flags `0x49`),
+  so the dropdown will do something there.
+
+The final pass also gets one `Reset` when newly created, so its first frame is not blended against
+whatever its allocation contained.
+
 **The crash on rebuilding a feature is fixed.** "Pure virtual function being called" on the RHI
 thread, inside OptiScaler under its proxy name.
 
@@ -62,6 +89,28 @@ and never built the stage at all.
 The reordered placements are now also gated to D3D12, where they are implemented. On D3D11 and Vulkan
 they fall back to post-process rather than clearing IsHDR on a feature nothing runs ahead of.
 
+## What the model itself consumes
+
+A property of `nvngx_dlssnr.dll`, so one answer covers every title. Taken from the full set of
+parameters the forwarder writes to it:
+
+| | |
+|---|---|
+| Jitter offsets | **Not consumed.** There is no jitter key in its parameter surface at all. |
+| Motion vectors | Consumed — `MVec`, `MVecScaleX/Y`, and a full subrect. |
+| `Reset` | Present. |
+
+Motion vectors plus a Reset only mean something to a pass that keeps history: a stateless filter has
+nothing to reproject and nothing to reset. So the model is almost certainly a temporal accumulator.
+That is inference from the parameter surface, not proof — the decisive test is forcing `Reset` every
+frame and seeing whether stability degrades.
+
+It matters most on the RT path. Ray Reconstruction is already a temporal accumulator doing denoising
+history on top of upscaling, so RR → NR → SR puts three independent history-rejection stages in
+series. On a single disocclusion those rejections compound, and the third stage cannot distinguish a
+frame the second already invalidated from real motion. That is a larger effect than the jitter
+parameter ever was.
+
 ## Worth testing first
 
 Test in this order — it isolates each fix, so a failure tells you which one did not hold.
@@ -71,7 +120,9 @@ Test in this order — it isolates each fix, so a failure tells you which one di
 2. **Switch to Multi-pass + Super Resolution** in the menu. One frame of hitch, then it should run;
    that hitch is the feature rebuilding. Set **First pass** to Super Resolution — this game has no
    Ray Reconstruction, so RR will keep falling back to post-process and logging why.
-3. **The colour guard** — still the one with no result at all yet. It does not need an HDR monitor;
+3. **Multi-pass in motion**, now the final pass jitter is fixed. Try **Final pass jitter** at Zero
+   and then at Forward — it is read per frame, so no restart.
+4. **The colour guard** — still the one with no result at all yet. It does not need an HDR monitor;
    see below.
 
 If step 1 still dies, the log is more use than the crash dump: the last line before the abort says
