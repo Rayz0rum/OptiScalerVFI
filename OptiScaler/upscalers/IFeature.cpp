@@ -12,6 +12,15 @@ DlssNr::Mode IFeature::NREffectiveMode() const
     if (!Config::Instance()->DlssNrEnabled.value_or_default())
         return DlssNr::Mode::PostProcess;
 
+    /*
+     * The reordered arrangements are built in IFeature_Dx12's pipeline and nowhere else. On D3D11 and
+     * Vulkan the model still runs, but only after the upscaler -- so claiming any other mode there
+     * would clear IsHDR and AutoExposure on a feature nothing runs ahead of, or hold it at 1:1 with no
+     * second feature to enlarge the result. Both are worse than the honest fallback.
+     */
+    if (Api() != API::DX12)
+        return DlssNr::Mode::PostProcess;
+
     if (!DlssNr::UsesTwoFeatures(mode))
         return mode;
 
@@ -248,6 +257,7 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
          * The exposure the upscaler needs in AutoExposure's place is supplied by
          * the module, as an explicit 1x1 identity.
          */
+        _nrModeAtCreate = NREffectiveMode();
         _nrReorderedAtCreate = NRWantsReorderedFlags();
 
         if (_nrReorderedAtCreate)

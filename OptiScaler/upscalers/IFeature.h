@@ -117,6 +117,18 @@ class IFeature
     bool _nrReorderedAtCreate = false;
 
     /*
+     * The arrangement this feature was actually built for.
+     *
+     * Not the same question as _nrReorderedAtCreate, which only asks about the
+     * flags. Multi-pass also fixes the target resolution at creation, and the
+     * pipeline stage that feeds it reads config live -- so switching placement
+     * in the menu starts routing the upscaler into a render-resolution buffer
+     * while its feature is still built to write display resolution, and the
+     * evaluate fails with FAIL_InvalidParameter every frame.
+     */
+    DlssNr::Mode _nrModeAtCreate = DlssNr::Mode::PostProcess;
+
+    /*
      * Whether the GAME's own image is linear HDR, recorded before any override.
      *
      * IsHdr() reports the flag this feature was created with, and the reordered
@@ -171,14 +183,30 @@ class IFeature
     bool NRWantsReorderedFlags() const { return DlssNr::WantsReorderedFlags(NREffectiveMode()); }
 
     /*
-     * True when the arrangement changed since this feature was built. Its flags
-     * are fixed at creation, so they are now wrong for the colour space it is
-     * being fed and only a rebuild can fix it.
+     * True when the arrangement changed since this feature was built.
+     *
+     * Both the flags and the target resolution are fixed at creation, so a
+     * placement change cannot take effect without a rebuild. Nothing else
+     * catches it: engines decide whether to rebuild by comparing resolutions,
+     * and the game's resolutions have not moved.
+     *
+     * Left unchecked, the pipeline stage -- which reads config live -- starts
+     * routing the upscaler's output into a render-resolution buffer while its
+     * feature is still built to write display resolution, and every evaluate
+     * fails with FAIL_InvalidParameter.
      *
      * This must ask the same question SetInitParameters asked, or it answers
      * "yes" forever and the backend rebuilds every frame.
      */
-    bool NRNeedsRebuildForOrdering() const { return _nrReorderedAtCreate != NRWantsReorderedFlags(); }
+    bool NRNeedsRebuild() const { return _nrModeAtCreate != NREffectiveMode(); }
+
+    /*
+     * The arrangement the live feature was built for.
+     *
+     * What the pipeline must branch on, rather than the configured mode: the two agree only after a
+     * rebuild, and a stage that disagrees with its feature is exactly the failure above.
+     */
+    DlssNr::Mode NRBuiltMode() const { return _nrModeAtCreate; }
 
     /* The 1:1 size the first pass runs at, and whether that differs from the
      * game's render resolution. See the implementation for the clamping rules. */

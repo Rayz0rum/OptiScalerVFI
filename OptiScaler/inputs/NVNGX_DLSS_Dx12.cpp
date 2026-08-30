@@ -1195,6 +1195,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
      * own pipeline -- and running it a second time here would enhance an
      * enhanced frame, at twice the cost.
      *
+     * Asked of the feature as built rather than as configured: the two agree only after a rebuild,
+     * and during that one frame the configured mode would skip a pass the feature still needs.
+     *
      * State::currentFeature is what those modes are configured on; with native
      * DLSS passing straight through there is no such feature and no way to
      * reorder anything, so this stays the only placement available.
@@ -1203,7 +1206,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     {
         auto* current = State::Instance().currentFeature;
 
-        if (current == nullptr || current->NREffectiveMode() == DlssNr::Mode::PostProcess)
+        if (current == nullptr || current->NRBuiltMode() == DlssNr::Mode::PostProcess)
             DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
     }
 #endif

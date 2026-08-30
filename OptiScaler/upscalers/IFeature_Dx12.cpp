@@ -53,6 +53,27 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         return false;
     }
 
+#if OPTI_DLSSNR
+    /*
+     * A placement change needs the feature rebuilt before anything else happens.
+     *
+     * The target resolution and the HDR and exposure flags are all fixed at creation, and nothing
+     * else here notices: engines rebuild on a resolution change, and the game's resolutions have not
+     * moved. Without this the multi-pass stage below -- which reads config live -- immediately routes
+     * the upscaler's output into a render-resolution buffer while its feature is still built to write
+     * display resolution, and every evaluate returns FAIL_InvalidParameter.
+     *
+     * Reported as success rather than failure: this is one deliberate frame during a mode change, not
+     * an upscaler that has gone wrong, and saying otherwise puts an error on screen for it.
+     */
+    if (NRNeedsRebuild())
+    {
+        LOG_INFO("DLSS-NR placement changed; rebuilding the upscaler feature for it");
+        State::Instance().changeBackend[Handle()->Id] = true;
+        return true;
+    }
+#endif
+
     if (Config::Instance()->OverrideSharpness.value_or_default())
         _sharpness = Config::Instance()->Sharpness.value_or_default();
     else
@@ -114,7 +135,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
      * needs it cleared. Nothing reconciles that in one feature; nothing prevents
      * holding two.
      */
-    const bool useMultiPass = NRUsesTwoFeatures() && Config::Instance()->DlssNrEnabled.value_or_default();
+    const bool useMultiPass = DlssNr::UsesTwoFeatures(NRBuiltMode());
 
     if (useMultiPass)
     {
@@ -332,7 +353,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
      * SetInitParameters. Colour is named explicitly because Output at this point
      * is a pipeline buffer the upscaler has not written yet.
      */
-    if (NREffectiveMode() == DlssNr::Mode::UpscaleWithSR)
+    if (NRBuiltMode() == DlssNr::Mode::UpscaleWithSR)
     {
         ID3D12Resource* paramColor = nullptr;
         InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
