@@ -168,6 +168,59 @@ bool IFeature::NRFeature1IsResampled() const
 }
 
 /*
+ * Whether the final Super Resolution pass in a multi-pass chain is given the game's real jitter
+ * offsets, or zeros.
+ *
+ * One function for both pipelines on purpose. From this pass's point of view the only thing that
+ * differs upstream is which feature produced the resolved 1:1 image -- DLAA on the non-RT path, Ray
+ * Reconstruction on the RT one -- and nothing about that changes the answer. Splitting it in two is
+ * how the variants would drift.
+ *
+ * The default is zero. The first pass consumed the game's sequence and its output is grid-aligned, so
+ * a per-frame Halton offset describes a subpixel displacement the image no longer contains.
+ * Reprojecting against it shimmers with the period of the jitter sequence, which is exactly what the
+ * first pass existed to remove. The render-side projection jitter is untouched by any of this: the
+ * first pass, DLAA or RR, still receives the game's sequence intact.
+ *
+ * MVJittered overrides the setting rather than competing with it. The flag says the game baked its
+ * jitter into the motion vectors and expects DLSS to cancel it -- using these very offsets. Zeroing
+ * them leaves the offset uncancelled, so every vector is wrong by a full jitter offset every frame,
+ * which is worse than the problem being fixed. Forwarding the real offsets restores the cancellation
+ * and accepts a sample-placement error bounded by a single jitter delta instead.
+ *
+ * The flag itself is read once, in SetInitParameters, from the create flags the game supplied --
+ * DLSS's on the SR path, Ray Reconstruction's on the RR path, both through the same parameter and
+ * into the same _initFlags.JitteredMV. The branch below consumes that one normalised value.
+ */
+bool IFeature::NRFinalPassForwardsJitter() const
+{
+    // The member rather than the accessor: that one is not const, and this needs to be.
+    const bool mvJittered = _initFlags.JitteredMV;
+    const bool settingForwards = Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0;
+    const bool forwards = mvJittered || settingForwards;
+
+    // Once per feature, so the console says which pipeline a title took and which vector path it hit
+    // without turning into per-frame noise.
+    static bool reported = false;
+
+    if (!reported)
+    {
+        reported = true;
+        LOG_INFO("DLSS-NR multi-pass: first pass is {}, motion vectors are {}, final Super Resolution "
+                 "pass gets {} jitter{}",
+                 GetUpscalerType() == Upscaler::DLSSD ? "Ray Reconstruction" : "Super Resolution (DLAA)",
+                 mvJittered ? "jittered (MVJittered set, so DLSS cancels the offset itself)"
+                            : "not jittered",
+                 forwards ? "the game's real" : "zero",
+                 mvJittered && !settingForwards
+                     ? " -- forced by MVJittered, which needs the real offsets to cancel with"
+                     : "");
+    }
+
+    return forwards;
+}
+
+/*
  * Settle which arrangement this feature is being built for, and apply what that decides.
  *
  * Deliberately NOT part of SetInitParameters. That runs from a feature's constructor -- DLSSFeature's,

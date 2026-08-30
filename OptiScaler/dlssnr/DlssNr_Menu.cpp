@@ -163,6 +163,26 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nG-buffer inputs a Super Resolution integration never supplies -- so a"
                                "\nmismatch falls back to post-process rather than half-applying the"
                                "\narrangement, and says so in the log.");
+
+                static const char* jitterNames[] = { "Zero (Recommended)", "Forward the game's offsets" };
+                int jitterMode = (int) config->DlssNrMultiPassJitter.value_or_default();
+
+                if (ImGui::Combo("Final pass jitter", &jitterMode, jitterNames, IM_ARRAYSIZE(jitterNames)))
+                    config->DlssNrMultiPassJitter = (uint32_t) jitterMode;
+
+                HelpMarker("What the last Super Resolution pass is told about jitter."
+                               "\n\nThe first pass ran at 1:1 with the game's sequence and resolved it, so"
+                               "\nwhat reaches the last pass is grid-aligned. A per-frame offset then"
+                               "\ndescribes a subpixel displacement the image no longer has, and"
+                               "\nreprojecting against it shimmers at the period of the jitter sequence --"
+                               "\nwhich is the thing the first pass existed to remove."
+                               "\n\nRead every frame, so the two can be compared without a restart. The"
+                               "\ngame's own render jitter is untouched either way; only what the last"
+                               "\npass is told changes."
+                               "\n\nIf the game declares its motion vectors jittered, this is ignored and"
+                               "\nthe real offsets are forwarded regardless: DLSS cancels the baked offset"
+                               "\nusing these values, and zeroing them would leave it uncancelled, which"
+                               "\nis worse. The log says when that happened.");
             }
 
             if (selected == DlssNr::Mode::MultiPassCustom)

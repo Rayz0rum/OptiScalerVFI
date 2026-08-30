@@ -287,6 +287,21 @@ class Config
     // of the display height -- because below that the first pass has less to work with than any
     // shipping DLSS preset would hand it, and nothing downstream can invent what was discarded.
     CustomOptional<int> DlssNrFeature1Scale { 0 };
+
+    // What jitter the final Super Resolution pass in a multi-pass chain is given.
+    //
+    // 0 zero offsets, 1 the game's real offsets. Zero is right in the ordinary case: the first pass
+    // resolved the game's sequence, so its output is grid-aligned and a per-frame Halton offset
+    // describes a subpixel displacement the image no longer has. Reprojecting against it shimmers with
+    // the period of the jitter sequence -- precisely what the first pass was there to remove.
+    //
+    // Read per frame rather than latched, so the two can be compared without a restart.
+    //
+    // It does not get the final say. When the game declares MVJittered the vectors carry a baked
+    // offset that DLSS cancels using these values, and zeroing them leaves the offset uncancelled --
+    // a full jitter offset every frame, worse than the bounded sample-placement error taken instead.
+    // See IFeature::NRFinalPassForwardsJitter.
+    CustomOptional<uint32_t> DlssNrMultiPassJitter { 0 };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
     CustomOptional<int> DlssNrToggleKey { UnboundKey };

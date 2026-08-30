@@ -321,6 +321,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrMode.set_from_config(readUInt("DlssNr", "Mode"));
             DlssNrFeature1Pipeline.set_from_config(readUInt("DlssNr", "Feature1Pipeline"));
             DlssNrFeature1Scale.set_from_config(readInt("DlssNr", "Feature1Scale"));
+            DlssNrMultiPassJitter.set_from_config(readUInt("DlssNr", "MultiPassJitter"));
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
@@ -1173,6 +1174,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Feature1Pipeline",
                  GetIntValue(Instance()->DlssNrFeature1Pipeline.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Feature1Scale", GetIntValue(Instance()->DlssNrFeature1Scale.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MultiPassJitter",
+                 GetIntValue(Instance()->DlssNrMultiPassJitter.value_for_config()).c_str());
     {
         auto toggle = Instance()->DlssNrToggleKey.value_for_config();
         ini.SetValue("DlssNr", "ToggleKey", GetIntValue(toggle, toggle > 0).c_str());

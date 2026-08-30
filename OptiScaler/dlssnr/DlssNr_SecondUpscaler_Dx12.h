@@ -91,6 +91,19 @@ class DlssNr_SecondUpscaler_Dx12
 
     bool IsCreated() const { return _handle != nullptr; }
 
+    /*
+     * True once for each newly created feature, so its first evaluate carries Reset.
+     *
+     * A feature built this frame has no history, and its first frame would otherwise be blended
+     * against whatever the allocation happened to contain.
+     */
+    bool ConsumeResetFlag()
+    {
+        const bool reset = _needsReset;
+        _needsReset = false;
+        return reset;
+    }
+
     std::optional<double> ReadGpuTime(ID3D12CommandQueue* queue)
     {
         return GpuTime != nullptr ? GpuTime->ReadGpuTime(queue) : std::nullopt;
@@ -112,6 +125,7 @@ class DlssNr_SecondUpscaler_Dx12
     bool _jitteredMV = false;
 
     bool _createFailed = false;
+    bool _needsReset = true;
 
     /*
      * The 1x1 identity exposure this feature needs, and its upload staging.

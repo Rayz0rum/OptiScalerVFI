@@ -197,6 +197,7 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     _perfQuality = perfQuality;
     _depthInverted = depthInverted;
     _jitteredMV = jitteredMV;
+    _needsReset = true;
 
     LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure", _name, renderWidth, renderHeight,
              displayWidth, displayHeight);
@@ -347,23 +348,18 @@ bool DlssNr_SecondUpscaler_Dx12::Evaluate(ID3D12GraphicsCommandList* cmdList, ID
         _params->Set(NVSDK_NGX_Parameter_ExposureTexture, exposure);
 
     /*
-     * No jitter for this feature.
+     * The jitter offsets, decided by the caller.
      *
-     * Feature 1 ran at 1:1 with the game's jitter and resolved it: what arrives
-     * here is a settled image with no residual sub-pixel offset. Passing the
-     * game's jitter on would tell this feature the input is still jittered, and
-     * it would displace its samples by an offset that is not there - a
-     * different offset every frame, which reads as the picture warping and
-     * swimming rather than as softness.
+     * Normally zero: the first pass ran at 1:1 with the game's sequence and resolved it, so what
+     * arrives here is grid-aligned and a per-frame offset would describe a subpixel displacement the
+     * image no longer has -- shimmer at the period of the jitter sequence, which is what the first
+     * pass was there to remove.
      *
-     * Motion vectors still apply: they describe scene motion, which is as true
-     * for a resolved image as for a jittered one.
+     * Not zero when the game declares MVJittered, because then these values are also what DLSS
+     * cancels the baked offset in the vectors with. See IFeature::NRFinalPassForwardsJitter.
      */
-    (void) jitterX;
-    (void) jitterY;
-
-    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, 0.0f);
-    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.0f);
+    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, jitterX);
+    _params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, jitterY);
     _params->Set(NVSDK_NGX_Parameter_MV_Scale_X, mvScaleX);
     _params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, mvScaleY);
 

@@ -187,13 +187,22 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &mvScaleY);
 
                   /*
-                   * Zero jitter. The first pass has already resolved the game's
-                   * jitter, so passing it again tells this feature the image is
-                   * offset when it is not -- which reads on screen as the picture
-                   * swimming against the camera.
+                   * The first pass was a straight forward of whatever the game asked for -- its create
+                   * flags, its motion vector scales and its jitter sequence all untouched. The
+                   * divergence is here, and only here.
                    */
+                  float jitterX = 0.0f;
+                  float jitterY = 0.0f;
+
+                  if (NRFinalPassForwardsJitter())
+                  {
+                      InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &jitterX);
+                      InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
+                  }
+
                   return SecondUpscaler->Evaluate(InCommandList, input, output, paramDepth, paramMotion,
-                                                  nullptr, 0.0f, 0.0f, mvScaleX, mvScaleY, false);
+                                                  nullptr, jitterX, jitterY, mvScaleX, mvScaleY,
+                                                  SecondUpscaler->ConsumeResetFlag());
               } });
     }
 #endif
