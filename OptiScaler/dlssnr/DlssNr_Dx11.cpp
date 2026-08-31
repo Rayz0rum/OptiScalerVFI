@@ -525,10 +525,38 @@ void EvaluateAfterUpscaleDx11(ID3D11DeviceContext* ctx, NVSDK_NGX_Parameter* par
         if (g_nr.feature == nullptr)
         {
             g_nr.failed = true;
-            g_nr.reason = "the model would not initialise";
-            LOG_ERROR("DLSS-NR (D3D11) create failed: init 0x{:X}, create 0x{:X}",
-                      g_nr.lastInit != nullptr ? *g_nr.lastInit : 0,
-                      g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
+
+            const auto initResult = (unsigned int) (g_nr.lastInit != nullptr ? *g_nr.lastInit : 0);
+
+            /*
+             * FAIL_FeatureNotSupported from the snippet's own D3D11 init is the snippet declining the
+             * API outright, not a complaint about what it was handed.
+             *
+             * The snippet exports a complete D3D11 surface, but exporting an entry point and
+             * supporting the model behind it are different claims -- every NGX snippet exports all
+             * four APIs as boilerplate. The model's work is CUDA, and NGX bridges that to D3D12 and
+             * Vulkan; the D3D11 interop path is legacy and evidently not wired for this feature.
+             *
+             * There is a way round it, and OptiScaler already has it: the D3D11-on-D3D12 bridge
+             * carries this pass too. Choosing one of the _12 upscalers puts the frame on the D3D12
+             * route, where the model does run.
+             */
+            if (initResult == 0xBAD00001u)
+            {
+                g_nr.reason = "the model does not support D3D11 -- pick a _12 upscaler to bridge to D3D12";
+                LOG_ERROR("DLSS-NR (D3D11): the snippet returned FAIL_FeatureNotSupported from its own "
+                          "D3D11 init, which is it declining the API rather than objecting to the "
+                          "arguments. Neural Rendering appears to be D3D12 and Vulkan only. Set "
+                          "Dx11Upscaler to one of the _12 options (xess_12, fsr22_12, ffx_12) and the "
+                          "D3D11-on-D3D12 bridge will carry the pass instead.");
+            }
+            else
+            {
+                g_nr.reason = "the model would not initialise";
+                LOG_ERROR("DLSS-NR (D3D11) create failed: init 0x{:X}, create 0x{:X}", initResult,
+                          g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
+            }
+
             device->Release();
             return;
         }

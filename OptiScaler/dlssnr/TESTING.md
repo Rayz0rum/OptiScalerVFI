@@ -21,9 +21,9 @@ log says so explicitly rather than reporting a generic failure, but copy it acro
 
 Everything below is built on Dagherbou's `dlssnr-pr`, whose D3D12 path is unchanged.
 
-- **Native D3D11 and Vulkan.** The snippet exports a complete surface for both (verified against the
-  shipped DLL), so neither is bridged through D3D12. A D3D11 game already on a native D3D11 upscaler
-  never touches D3D12 at all.
+- **Vulkan.** Native, not bridged — the snippet exports a complete Vulkan surface and the model runs
+  on it. A native D3D11 backend also exists, but the model declines that API; see the D3D11 section
+  below for the way round it.
 - **Placement** — post-process (default, unchanged), Upscale with DLSS-SR, Multi-pass Rendering, and
   Multi-pass Rendering (Custom). Anything but post-process applies to OptiScaler's own upscalers, not
   to a game's native DLSS passing straight through.
@@ -230,6 +230,28 @@ greys out when nothing has changed, and the applied value is shown while it diff
 Set **First pass** to match the upscaler actually running. OptiScaler cannot substitute Ray
 Reconstruction for Super Resolution — RR needs G-buffer inputs an SR integration never supplies — so
 a mismatch falls back to post-process and says so in the log.
+
+## Known: Neural Rendering does not work on native D3D11
+
+Confirmed on Final Fantasy XIV. The snippet's own `NVSDK_NGX_D3D11_Init_Ext` returns `0xBAD00001`,
+`FAIL_FeatureNotSupported` — it declining the API, not objecting to what it was given. Everything
+before that succeeds: the forwarder loads, the float slot is discovered through the D3D11 capability
+block, and the data path is the game's own.
+
+The native D3D11 backend was built because `dumpbin` shows a complete D3D11 export surface. That was
+the wrong inference — every NGX snippet exports all four APIs as boilerplate, and the model's work is
+CUDA, which NGX bridges to D3D12 and Vulkan. The D3D11 interop path is legacy and apparently not
+wired for this feature.
+
+**The way round it, on a D3D11 game:** set `Dx11Upscaler` to one of the `_12` options — `xess_12`,
+`fsr22_12` or `ffx_12`. Those route the frame through D3D12, and OptiScaler's D3D11-on-D3D12 bridge
+carries the pass. `Dx11Upscaler=dlss` is *native* D3D11 and never touches D3D12, so the model never
+runs.
+
+The failure now names the result code and points at that fix, in the log and in the menu.
+
+Whether *any* D3D11 title works, or D3D11 is simply unsupported for this feature, is one data point
+so far.
 
 ## Known-unverified
 
