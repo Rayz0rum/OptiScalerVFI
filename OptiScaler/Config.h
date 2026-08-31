@@ -305,6 +305,18 @@ class Config
     // See IFeature::NRFinalPassForwardsJitter.
     CustomOptional<uint32_t> DlssNrMultiPassJitter { 1 };
 
+    // Which way the edit transfer shifts its sample to line up with the jittered frame.
+    //
+    // The ratio is measured on the resolved frame and applied to the jittered one, and the same scene
+    // feature sits up to half a pixel apart in the two. Sampling the resolved pair at the jitter offset
+    // puts the edit on the feature it belongs to; without it the enlargement's accumulation averages
+    // the misplacement across offsets and cancels the edit, which reads as the model barely acting.
+    //
+    // The sign depends on the engine's jitter convention, which is not something to guess: +1 and -1
+    // are both offered, and the wrong one doubles the misalignment rather than removing it. 0 disables
+    // the alignment entirely. If +1 looks weaker than 0, the answer is -1.
+    CustomOptional<int> DlssNrMultiPassAlign { 1 };
+
     // How the multi-pass chain performs its enlargement.
     //
     // 0 a second DLSS Super Resolution feature, 1 a spatial filter.

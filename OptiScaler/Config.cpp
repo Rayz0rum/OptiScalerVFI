@@ -322,6 +322,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrFeature1Pipeline.set_from_config(readUInt("DlssNr", "Feature1Pipeline"));
             DlssNrFeature1Scale.set_from_config(readInt("DlssNr", "Feature1Scale"));
             DlssNrMultiPassJitter.set_from_config(readUInt("DlssNr", "MultiPassJitter"));
+            DlssNrMultiPassAlign.set_from_config(readInt("DlssNr", "MultiPassAlign"));
             DlssNrMultiPassEnlarge.set_from_config(readUInt("DlssNr", "MultiPassEnlarge"));
             DlssNrResetEveryFrame.set_from_config(readBool("DlssNr", "ResetEveryFrame"));
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
@@ -1180,6 +1181,8 @@ bool Config::SaveIni()
                  GetBoolValue(Instance()->DlssNrResetEveryFrame.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MultiPassEnlarge",
                  GetIntValue(Instance()->DlssNrMultiPassEnlarge.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MultiPassAlign",
+                 GetIntValue(Instance()->DlssNrMultiPassAlign.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MultiPassJitter",
                  GetIntValue(Instance()->DlssNrMultiPassJitter.value_for_config()).c_str());
     {

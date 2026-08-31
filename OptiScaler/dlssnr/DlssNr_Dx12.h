@@ -34,9 +34,16 @@ namespace DlssNr
 //
 // Safe to call every frame; it builds what it needs on first use and disables itself for the session if
 // anything fails, rather than retrying into a crash.
-void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                          ID3D12Resource* targetOverride = nullptr, unsigned int overrideWidth = 0,
-                          unsigned int overrideHeight = 0);
+// Returns the image the caller should treat as the frame from here on. Normally that is the target
+// itself, edited in place. When `writeToScratch` is set the pass writes into a buffer of its own and
+// returns that instead -- which the reordered arrangement needs, because there the target is the
+// GAME's colour buffer, and a game does not generally create that with unordered access. The codec's
+// view over it then cannot be created at all and the writes land nowhere defined, which is what puts
+// coloured blocks over the frame.
+ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                                     ID3D12Resource* targetOverride = nullptr,
+                                     unsigned int overrideWidth = 0, unsigned int overrideHeight = 0,
+                                     bool writeToScratch = false);
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask
@@ -68,7 +75,7 @@ void RetryAfterFailure();
  */
 void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
                               ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
-                              unsigned int width, unsigned int height);
+                              unsigned int width, unsigned int height, float alignX, float alignY);
 
 /*
  * Resample the first pass's inputs down to the size it is being run at, for Multi-pass Custom.

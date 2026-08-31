@@ -15,6 +15,10 @@ cbuffer Params : register(b0)
     float gMvScaleY;
     uint  gGuideWidth;   // the motion texture's valid region
     uint  gGuideHeight;
+    // Where the resolved pair must be sampled so its ratio lands on the feature the jittered frame
+    // actually holds at this pixel. Already signed by the host; zero disables the alignment.
+    float gAlignX;
+    float gAlignY;
     // How strongly to distrust the model's colour where it desaturated what it was shown. 0 disables.
     float gColourGuard;
 };
@@ -189,8 +193,24 @@ void main(uint3 id : SV_DispatchThreadID)
      */
     if (gMode == 3)
     {
-        const float3 before = Sanitize(gSource.Load(int3(id.xy, 0)).rgb);
-        const float3 after = Sanitize(gModel.Load(int3(id.xy, 0)).rgb);
+        /*
+         * Sampled at an offset, not loaded in place.
+         *
+         * The ratio is measured on the resolved frame and applied to the jittered one, and the same
+         * scene feature does not sit at the same pixel in both -- the jittered frame sampled the scene
+         * up to half a pixel away. Reading the pair straight off the grid therefore lands the model's
+         * enhancement beside the feature it belongs to, and the enlargement's temporal accumulation
+         * then averages that misplacement across frames with different offsets, which cancels the
+         * enhancement rather than merely blurring it. The model's work arrives far weaker than it was.
+         *
+         * gAlign carries the offset that maps this pixel back to where the resolved pair holds the
+         * same content. Zero restores the unaligned behaviour.
+         */
+        const float2 alignUv =
+            (float2(id.xy) + 0.5 + float2(gAlignX, gAlignY)) / float2(gWidth, gHeight);
+
+        const float3 before = Sanitize(gSource.SampleLevel(gLinear, alignUv, 0).rgb);
+        const float3 after = Sanitize(gModel.SampleLevel(gLinear, alignUv, 0).rgb);
         const float4 jittered = gOriginal.Load(int3(id.xy, 0));
 
         const float beforeLuma = dot(before, kLuma);

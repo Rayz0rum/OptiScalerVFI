@@ -240,47 +240,50 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                    * input.
                    */
                   /*
-                   * The transfer carries the model's edit onto the game's original jittered frame,
-                   * which means the first pass's own IMAGE is discarded and only its influence on the
-                   * model survives.
+                  /*
+                   * The transfer carries the model's edit onto the game's original jittered frame, so
+                   * the first pass's own IMAGE is discarded and only its influence on the model
+                   * survives.
                    *
-                   * That is right for Super Resolution as the first pass: its antialiasing is lost,
-                   * but the enlargement redoes it from properly jittered input, which is what DLSS is
-                   * for. It is wrong for Ray Reconstruction. RR's output is a denoised path-traced
-                   * signal, and a per-pixel brightness ratio cannot carry a spatial denoise -- feeding
-                   * the raw jittered frame back in puts every bit of the noise back, which is the
-                   * entire reason that pipeline exists.
+                   * For Super Resolution that is a clean trade: its antialiasing is lost, and the
+                   * enlargement rebuilds it from properly jittered input, which is what DLSS is for.
                    *
-                   * So RR keeps its resolved frame. Pair it with the spatial enlargement, which asks
-                   * for no jitter and so does not need any of this.
+                   * For Ray Reconstruction the reasoning says it should not be: RR's output is a
+                   * denoised path-traced signal, a brightness ratio cannot carry a spatial denoise, and
+                   * feeding the raw jittered frame back in restores the noise RR just removed. It is
+                   * allowed anyway, because that is a prediction and this one is cheap to measure --
+                   * and predictions of this kind have already been wrong here twice. The log says which
+                   * pipeline took it.
                    */
                   const bool firstPassIsRr = GetUpscalerType() == Upscaler::DLSSD;
 
                   const bool transferEdit =
-                      !spatialEnlarge && !firstPassIsRr &&
+                      !spatialEnlarge &&
                       Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
                       SecondUpscaler->CreateEditBuffers(input, RenderWidth(), RenderHeight());
 
-                  if (firstPassIsRr && !spatialEnlarge)
+                  if (transferEdit)
                   {
-                      static bool warned = false;
+                      static bool reported = false;
 
-                      if (!warned)
+                      if (!reported)
                       {
-                          warned = true;
-                          LOG_WARN("DLSS-NR multi-pass: the first pass is Ray Reconstruction, so its "
-                                   "denoised frame is kept rather than transferred -- a brightness ratio "
-                                   "cannot carry a denoise. The DLSS enlargement therefore has no jitter "
-                                   "to work with here; the spatial enlargement is the better pairing for "
-                                   "this pipeline.");
+                          reported = true;
+                          LOG_INFO("DLSS-NR multi-pass: the edit is transferred onto the game's jittered "
+                                   "frame, first pass is {}{}",
+                                   firstPassIsRr ? "Ray Reconstruction" : "Super Resolution (DLAA)",
+                                   firstPassIsRr ? " -- watch for path-trace noise returning, since a "
+                                                   "brightness ratio cannot carry a denoise"
+                                                 : "");
                       }
                   }
+
 
 
                   if (transferEdit)
                       CopyRenderRect(InCommandList, input, SecondUpscaler->EditBefore());
 
-                  DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, RenderWidth(),
+                  (void) DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, input, RenderWidth(),
                                                RenderHeight());
 
                   if (spatialEnlarge)
@@ -303,9 +306,26 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
                       if (paramColor != nullptr)
                       {
+                          /*
+                           * The ratio was measured on the resolved frame; the frame it is applied to
+                           * sampled the scene up to half a pixel away. Sampling the pair at the jitter
+                           * offset puts the model's edit on the feature it belongs to instead of
+                           * beside it -- without which the enlargement's accumulation averages the
+                           * misplacement across offsets and cancels the edit rather than blurring it,
+                           * which reads as the model barely doing anything.
+                           */
+                          float alignX = 0.0f;
+                          float alignY = 0.0f;
+                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &alignX);
+                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &alignY);
+
+                          const float alignSign =
+                              (float) Config::Instance()->DlssNrMultiPassAlign.value_or_default();
+
                           DlssNr::TransferEditOntoJittered(InCommandList, SecondUpscaler->EditBefore(),
                                                            input, paramColor, SecondUpscaler->EditResult(),
-                                                           RenderWidth(), RenderHeight());
+                                                           RenderWidth(), RenderHeight(),
+                                                           alignX * alignSign, alignY * alignSign);
                           enlargeSource = SecondUpscaler->EditResult();
                       }
                   }
@@ -515,8 +535,21 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
 
         if (paramColor != nullptr)
-            DlssNr::EvaluateAfterUpscale(InCommandList, InParameters, paramColor, RenderWidth(),
-                                         RenderHeight());
+        {
+            /*
+             * The pass writes into a buffer of its own here, not into the game's colour buffer. A game
+             * creates that as a render target and a shader resource; it does not generally allow
+             * unordered access, so the codec's view over it cannot be created and its writes land
+             * nowhere defined -- coloured blocks over the frame, worst where the values are largest.
+             *
+             * The upscaler is then pointed at what came back, which is the enhanced frame.
+             */
+            ID3D12Resource* enhanced = DlssNr::EvaluateAfterUpscale(
+                InCommandList, InParameters, paramColor, RenderWidth(), RenderHeight(), true);
+
+            if (enhanced != nullptr && enhanced != paramColor)
+                InParameters->Set(NVSDK_NGX_Parameter_Color, enhanced);
+        }
     }
 #endif
 

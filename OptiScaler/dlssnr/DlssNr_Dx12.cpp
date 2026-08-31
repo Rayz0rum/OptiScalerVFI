@@ -74,6 +74,9 @@ struct NrState
     ID3D12Resource* depthClone = nullptr;
     ID3D12Resource* motionClone = nullptr;
 
+    // Destination for the reordered arrangement, which must not write into the game's own buffer.
+    ID3D12Resource* scratchOut = nullptr;
+
     // The first pass's resampled inputs, in Multi-pass Custom only.
     ID3D12Resource* f1Color = nullptr;
     ID3D12Resource* f1Depth = nullptr;
@@ -595,15 +598,15 @@ void RetryAfterFailure()
 
 }
 
-void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12Resource* targetOverride, unsigned int overrideWidth,
-                          unsigned int overrideHeight)
+                          unsigned int overrideHeight, bool writeToScratch)
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
     const Config& cfg = *Config::Instance();
 
     if (!cfg.DlssNrEnabled.value_or_default() || g_nr.failed || cmdList == nullptr || params == nullptr)
-        return;
+        return targetOverride;
 
     ID3D12Resource* target = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
@@ -619,12 +622,12 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     // Without all three there is nothing to run on. This is not a failure -- some evaluates legitimately
     // carry none of it -- so it stays quiet and tries again next frame.
     if (target == nullptr || depth == nullptr || motion == nullptr)
-        return;
+        return targetOverride;
 
     ID3D12Device* device = nullptr;
 
     if (FAILED(target->GetDevice(IID_PPV_ARGS(&device))) || device == nullptr)
-        return;
+        return targetOverride;
 
     const D3D12_RESOURCE_DESC desc = target->GetDesc();
     /*
@@ -695,7 +698,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         g_nr.failed = true;
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
-        return;
+        return targetOverride;
     }
 
     // What the model works at. The frame and its edit stay full resolution; only the model's input and
@@ -705,6 +708,40 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     const auto workWidth = (unsigned int) (width * workScale + 0.5f);
     const auto workHeight = (unsigned int) (height * workScale + 0.5f);
     const bool reduced = workWidth != width || workHeight != height;
+
+
+    /*
+     * Where the resolve writes.
+     *
+     * Normally the target itself, edited in place. In the reordered arrangement the target is the
+     * GAME's colour buffer, and a game does not generally create that with unordered access -- the
+     * codec's view over it then cannot be created at all and its writes land nowhere defined, which is
+     * what puts coloured blocks over the frame. So that path gets a buffer of its own and the caller
+     * is handed it back to use instead.
+     */
+    ID3D12Resource* frameOut = target;
+
+    if (writeToScratch)
+    {
+        if (g_nr.scratchOut != nullptr)
+        {
+            const auto have = g_nr.scratchOut->GetDesc();
+
+            if (have.Width != width || have.Height != height || have.Format != desc.Format)
+                ParkNrResource(g_nr.scratchOut);
+        }
+
+        if (g_nr.scratchOut == nullptr)
+            g_nr.scratchOut = CreateScratch(device, desc.Format, width, height);
+
+        if (g_nr.scratchOut == nullptr)
+        {
+            device->Release();
+            return target;
+        }
+
+        frameOut = g_nr.scratchOut;
+    }
 
     ReleaseSurfacesIfFormatChanged(desc.Format);
 
@@ -748,7 +785,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
             g_nr.reason = "nvngx_dlssnr.dll was not found beside OptiScaler or the game";
             LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
             device->Release();
-            return;
+            return targetOverride;
         }
 
         SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
@@ -772,7 +809,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
                       g_nr.lastInit != nullptr ? *g_nr.lastInit : 0,
                       g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
             device->Release();
-            return;
+            return targetOverride;
         }
 
         g_nr.width = width;
@@ -786,13 +823,13 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         // GPU (every crash died on a creation frame). The creation goes through the game's own submit
         // first; the first evaluate happens next frame. One frame without the model is invisible.
         device->Release();
-        return;
+        return targetOverride;
     }
 
     if (g_nr.feature == nullptr)
     {
         device->Release();
-        return;
+        return targetOverride;
     }
 
     // The upscaler has just written this, so it is a UAV. The model needs it readable.
@@ -822,7 +859,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         g_nr.reason = "the colour codec would not compile";
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
-        return;
+        return targetOverride;
     }
 
     // What the upscaler produces is linear HDR with an open-ended range; the model was trained on
@@ -909,7 +946,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         g_nr.reason = "the game's depth or motion vectors could not be made readable";
         LOG_ERROR("DLSS-NR unavailable: {}", g_nr.reason);
         device->Release();
-        return;
+        return targetOverride;
     }
 
     // The vectors were scaled to full-frame pixels; the image the model reprojects is the working size.
@@ -988,7 +1025,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        g_codec.dispatch(cmdList, resolveParams, modelInput, g_nr.output, g_nr.hdrCopy, target,
+        g_codec.dispatch(cmdList, resolveParams, modelInput, g_nr.output, g_nr.hdrCopy, frameOut,
                          nullptr, motionIn, nullptr);
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1049,12 +1086,14 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     device->Release();
+
+    return frameOut;
 }
 
 
 void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
                               ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
-                              unsigned int width, unsigned int height)
+                              unsigned int width, unsigned int height, float alignX, float alignY)
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
@@ -1078,6 +1117,8 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
     params.width = width;
     params.height = height;
     params.maxRatio = Config::Instance()->DlssNrMaxRatio.value_or_default();
+    params.alignX = alignX;
+    params.alignY = alignY;
 
     Barrier(cmdList, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
