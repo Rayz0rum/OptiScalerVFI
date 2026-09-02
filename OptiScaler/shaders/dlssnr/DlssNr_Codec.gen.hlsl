@@ -30,6 +30,8 @@ cbuffer Params : register(b0)
     // one, as a fraction of the white point. Below gTransferLo it is entirely additive.
     float gTransferLo;
     float gTransferHi;
+    // How completely the transferred edit fades out above the white point. 0 keeps it at full strength.
+    float gHighlightDamping;
 };
 
 // How much colour a pixel has, independent of how bright it is: 0 is neutral, 1 fully saturated.
@@ -153,6 +155,30 @@ float3 SrgbToLinear(float3 v)
     return lerp(v / 12.92, pow((v + 0.055) / 1.055, 2.4), step(0.04045, v));
 }
 
+// A ratio brought inside [gMinRatio, gMaxRatio] by a curve rather than a cliff.
+//
+// A hard clamp is a discontinuity, and a pixel sitting near the bound crosses it as the sampled pair
+// wobbles -- so the bound that exists to stop one pixel misbehaving becomes a source of its own
+// frame-to-frame switching. Compressing toward the limit instead keeps the guarantee (nothing ever
+// leaves the range) while making the approach to it smooth, so nothing snaps.
+//
+// Identity is preserved exactly at 1.0, which matters: that is what "the model changed nothing here"
+// has to mean, and it is most of the frame.
+float SoftLimit(float r)
+{
+    const float lo = min(gMinRatio, 1.0);
+    const float hi = max(gMaxRatio, 1.0);
+
+    if (r > 1.0)
+    {
+        const float headroom = hi - 1.0;
+        return headroom > 1e-6 ? 1.0 + headroom * (1.0 - exp(-(r - 1.0) / headroom)) : 1.0;
+    }
+
+    const float floorroom = 1.0 - lo;
+    return floorroom > 1e-6 ? 1.0 - floorroom * (1.0 - exp(-(1.0 - r) / floorroom)) : 1.0;
+}
+
 // The edit at an arbitrary position, exactly as the resolve computes its own.
 float3 EditAt(float2 uvq)
 {
@@ -243,6 +269,23 @@ void main(uint3 id : SV_DispatchThreadID)
                                        float2(-1.0, 1.0), float2(1.0, 1.0) };
         const float tapWeights[5] = { 0.5, 0.125, 0.125, 0.125, 0.125 };
 
+        /*
+         * Each tap's own ratio, averaged -- not the ratio of the averages.
+         *
+         * These are not the same thing, and the difference is exactly where the flickering lives. A
+         * quotient of two interpolated quantities is not the interpolation of their quotient, and the
+         * gap between them grows with the gradient of what is being interpolated. On a flat surface
+         * it is nothing. On a specular highlight, where the gradient is steepest and a subpixel shift
+         * moves the sample a long way up the slope, it is large -- and because the alignment offset
+         * follows the jitter, that error is redrawn every frame. High-contrast pixels then carry a
+         * multiplier that changes frame to frame for no reason in the scene, the enlargement's
+         * history logic sees samples that disagree, and highlights sparkle.
+         *
+         * Per-tap the quotient is taken while numerator and denominator still belong to the same
+         * texel, and each one is bounded before it is averaged, so a single near-zero denominator can
+         * no longer dominate the result for the whole neighbourhood.
+         */
+        float ratio = 0.0;
         float beforeLuma = 0.0;
         float afterLuma = 0.0;
 
@@ -252,8 +295,13 @@ void main(uint3 id : SV_DispatchThreadID)
             const float3 p = Sanitize(gSource.SampleLevel(gLinear, uvt, 0).rgb);
             const float3 m = Sanitize(gModel.SampleLevel(gLinear, uvt, 0).rgb);
 
-            beforeLuma += dot(p, kLuma) * tapWeights[t];
-            afterLuma += dot(m, kLuma) * tapWeights[t];
+            const float pl = dot(p, kLuma);
+            const float ml = dot(m, kLuma);
+
+            beforeLuma += pl * tapWeights[t];
+            afterLuma += ml * tapWeights[t];
+
+            ratio += SoftLimit(pl > 1e-5 ? ml / pl : 1.0) * tapWeights[t];
         }
 
         const float4 jittered = gOriginal.Load(int3(id.xy, 0));
@@ -281,15 +329,28 @@ void main(uint3 id : SV_DispatchThreadID)
         const float white = max(gWhitePoint, 1e-4);
         const float delta = afterLuma - beforeLuma;
 
-        float ratio = 1.0;
-
-        if (beforeLuma > 1e-5)
-            ratio = clamp(afterLuma / beforeLuma, min(gMinRatio, 1.0), max(gMaxRatio, 1.0));
-
         const float band =
             smoothstep(gTransferLo * white, max(gTransferHi * white, gTransferLo * white + 1e-6), jitLuma);
 
-        const float3 result = lerp(jit + delta.xxx, jit * ratio, band);
+        /*
+         * The edit is faded out above the white point.
+         *
+         * Two reasons, and they point the same way. The model's opinion is least reliable there by
+         * construction: the encode normalises luminance without bounding the individual channels, so
+         * a pixel above white was shown to the model already clipped -- the same fact the colour
+         * guard in the resolve exists to handle. And a multiplicative edit amplifies whatever
+         * variation it carries in proportion to the value it multiplies, so any residual per-frame
+         * wobble in the ratio is loudest at exactly the brightest pixels, which is what makes it read
+         * as sparkle rather than as noise.
+         *
+         * Fading toward identity there costs the model its highlight work and buys back stability.
+         * That is a real trade rather than a free fix, which is why it is a knob: gHighlightDamping
+         * at 0 restores the unfaded behaviour exactly.
+         */
+        const float overWhite = saturate((jitLuma / white - 1.0) / 3.0);
+        const float keep = 1.0 - overWhite * saturate(gHighlightDamping);
+
+        const float3 result = lerp(jit + (delta * keep).xxx, jit * lerp(1.0, ratio, keep), band);
 
         gTarget[id.xy] = float4(max(result, float3(0.0, 0.0, 0.0)), jittered.a);
         return;

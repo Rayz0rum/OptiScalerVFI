@@ -1185,6 +1185,7 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
     params.transferLo = cfg.DlssNrTransferLo.value_or_default();
     params.transferHi = cfg.DlssNrTransferHi.value_or_default();
     params.transferBlur = cfg.DlssNrTransferBlur.value_or_default();
+    params.highlightDamping = cfg.DlssNrHighlightDamping.value_or_default();
 
     g_stages.ensure(device);
     diag::ScopedStage timed(g_stages, diag::Stage::Transfer, cmdList);

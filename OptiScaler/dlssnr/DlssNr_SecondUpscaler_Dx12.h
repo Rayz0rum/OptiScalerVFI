@@ -67,7 +67,7 @@ class DlssNr_SecondUpscaler_Dx12
      */
     bool EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth, uint32_t renderHeight,
                        uint32_t displayWidth, uint32_t displayHeight, int perfQuality, bool depthInverted,
-                       bool jitteredMV, bool lowResMV, int preset);
+                       bool jitteredMV, bool lowResMV, int preset, bool isHdr, bool autoExposure);
 
     /*
      * Run the upscale. `exposure` is the 1x1 identity texture: this feature is
@@ -143,6 +143,11 @@ class DlssNr_SecondUpscaler_Dx12
     bool _depthInverted = false;
     bool _jitteredMV = false;
     bool _lowResMV = false;
+
+    // What this feature was created to expect, so Evaluate knows whether an exposure texture is
+    // needed at all: with AutoExposure set, DLSS derives one and a supplied texture is redundant.
+    bool _isHdr = false;
+    bool _autoExposure = false;
 
     bool _createFailed = false;
     bool _needsReset = true;

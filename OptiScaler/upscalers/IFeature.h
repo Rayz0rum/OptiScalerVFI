@@ -241,7 +241,7 @@ class IFeature
      * Whether the final Super Resolution pass gets the game's real jitter offsets or zeros. Shared by
      * both multi-pass pipelines; see the implementation for why MVJittered overrides the setting.
      */
-    bool NRFinalPassForwardsJitter() const;
+    bool NRFinalPassForwardsJitter(bool editTransferred) const;
 
     bool NRApplyFeature1Hold();
 

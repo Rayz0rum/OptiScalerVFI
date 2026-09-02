@@ -163,7 +163,7 @@ void DlssNr_SecondUpscaler_Dx12::Release()
 bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth,
                                            uint32_t renderHeight, uint32_t displayWidth, uint32_t displayHeight,
                                            int perfQuality, bool depthInverted, bool jitteredMV,
-                                           bool lowResMV, int preset)
+                                           bool lowResMV, int preset, bool isHdr, bool autoExposure)
 {
     if (_createFailed || cmdList == nullptr || renderWidth == 0 || displayWidth == 0)
         return false;
@@ -171,7 +171,8 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     bool geometryMatches = _handle != nullptr && _renderWidth == renderWidth && _renderHeight == renderHeight &&
                            _displayWidth == displayWidth && _displayHeight == displayHeight &&
                            _perfQuality == perfQuality && _depthInverted == depthInverted &&
-                           _jitteredMV == jitteredMV && _lowResMV == lowResMV;
+                           _jitteredMV == jitteredMV && _lowResMV == lowResMV && _isHdr == isHdr &&
+                           _autoExposure == autoExposure;
 
     if (geometryMatches)
         return true;
@@ -198,12 +199,20 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     }
 
     /*
-     * IsHDR is cleared deliberately: this feature consumes a tone mapped
-     * image. AutoExposure is cleared with it, and an explicit identity
-     * exposure is bound per frame instead - keeping AutoExposure would make
-     * DLSS estimate an exposure and divide an already-normalised picture
-     * toward black, and clearing it while supplying nothing leaves it with no
-     * exposure source at all, which is also black.
+     * IsHDR and AutoExposure follow what the game declared, because what this feature receives is
+     * the game's own colour space.
+     *
+     * They used to be cleared unconditionally, on the premise that Neural Rendering hands this pass a
+     * tone-mapped picture. It does not. The codec's resolve ends by multiplying back out of the
+     * normalised space it worked in, so the pass returns the frame in whatever space it was given --
+     * at zero strength, bit for bit what went in. And the edit transfer goes further still: it
+     * applies a brightness ratio to the game's own jittered buffer, so what arrives here is quite
+     * literally the game's frame with a near-unity multiplier on it.
+     *
+     * Declaring that display-referred selects the programming guide's LDR path, which quantises to
+     * 8 bits and expects a perceptually linear encoding. Handing it linear colour instead is the
+     * guide's own description of banding and colour shifting, and is the most likely reason the
+     * model's colours stop matching the upscaler's.
      */
     /*
      * Forwarded from what the game declared, never assumed.
@@ -226,6 +235,12 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
 
     if (jitteredMV)
         flags |= NVSDK_NGX_DLSS_Feature_Flags_MVJittered;
+
+    if (isHdr)
+        flags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
+
+    if (autoExposure)
+        flags |= NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
 
     _params->Set(NVSDK_NGX_Parameter_Width, renderWidth);
     _params->Set(NVSDK_NGX_Parameter_Height, renderHeight);
@@ -272,11 +287,14 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     _depthInverted = depthInverted;
     _jitteredMV = jitteredMV;
     _lowResMV = lowResMV;
+    _isHdr = isHdr;
+    _autoExposure = autoExposure;
     _needsReset = true;
 
-    LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure, motion vectors at {} (as "
+    LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR {}, exposure {}, motion vectors at {} (as "
              "the game declared them), depth {}, vectors {}, preset {}",
-             _name, renderWidth, renderHeight, displayWidth, displayHeight,
+             _name, renderWidth, renderHeight, displayWidth, displayHeight, isHdr ? "set" : "cleared",
+             autoExposure ? "automatic" : "supplied",
              lowResMV ? "render resolution" : "display resolution", depthInverted ? "inverted" : "normal",
              jitteredMV ? "jittered" : "not jittered",
              preset >= 0 ? std::to_string(preset) : std::string("left to the driver -- it may not match "
@@ -419,9 +437,15 @@ bool DlssNr_SecondUpscaler_Dx12::Evaluate(ID3D12GraphicsCommandList* cmdList, ID
     _params->Set(NVSDK_NGX_Parameter_Depth, depth);
     _params->Set(NVSDK_NGX_Parameter_MotionVectors, mvec);
 
-    // Created with AutoExposure cleared, so this is not optional. The caller may supply one; with
-    // nothing to offer, the identity below is what keeps the frame from resolving toward black.
-    if (exposure == nullptr)
+    /*
+     * An exposure is only needed where the feature has no other source for one.
+     *
+     * With AutoExposure set, DLSS estimates it from the frame and a supplied texture is redundant.
+     * With it cleared, supplying nothing leaves the feature no exposure source at all and the frame
+     * resolves toward black -- so the identity is not a nicety there, it is what keeps the picture.
+     * The caller's own texture wins over both when it has one.
+     */
+    if (exposure == nullptr && !_autoExposure)
         exposure = IdentityExposure(cmdList);
 
     if (exposure != nullptr)

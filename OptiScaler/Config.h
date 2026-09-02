@@ -288,22 +288,35 @@ class Config
     // shipping DLSS preset would hand it, and nothing downstream can invent what was discarded.
     CustomOptional<int> DlssNrFeature1Scale { 0 };
 
-    // How the DLSS enlargement in a multi-pass chain is fed, and what jitter it is told about.
+    // How completely the transferred edit fades toward identity above the white point.
     //
-    // 1 (default) carries the model's edit onto the game's own jittered frame and forwards the real
-    // offsets. The enlargement then has genuine subpixel content to reconstruct from, which is what a
-    // temporal upscaler needs and what the first pass's resolve would otherwise have taken away.
+    // The model's opinion is least reliable there by construction. The encode normalises luminance
+    // without bounding the individual channels, so a pixel above white was shown to the model already
+    // clipped -- the same fact the colour guard exists to handle. And a multiplicative edit amplifies
+    // whatever variation it carries in proportion to what it multiplies, so any residual per-frame
+    // wobble in the ratio is loudest at the brightest pixels, where it reads as sparkle rather than
+    // as noise.
     //
-    // 0 feeds it the resolved frame directly with zero offsets -- what this did before. Kept for
-    // comparison: it is soft, because there is no subpixel variation left to reconstruct, and it warps,
-    // because a constant zero offset is not what the algorithm's history logic expects.
+    // This is a trade, not a free fix: it costs the model its highlight work. 0 restores the unfaded
+    // behaviour exactly.
+    CustomOptional<float> DlssNrHighlightDamping { 1.0f };
+
+    // Whether the enlargement is created for the colour space it is actually handed.
     //
-    // Read per frame rather than latched, so the two can be compared without a restart.
+    // It was created with IsHDR and AutoExposure cleared and given an identity exposure, on the
+    // premise that Neural Rendering hands it a tone-mapped picture. It does not: the codec's resolve
+    // ends by multiplying back out of the normalised space it worked in, so the pass returns the
+    // frame in whatever space it received it -- and the edit transfer goes further, applying a ratio
+    // to the game's own jittered buffer. Either way what arrives is the game's colour space.
     //
-    // Ignored where the game declares MVJittered: the vectors then carry a baked offset that DLSS
-    // cancels using these values, so zeroing them leaves a full offset uncancelled every frame.
-    // See IFeature::NRFinalPassForwardsJitter.
-    CustomOptional<uint32_t> DlssNrMultiPassJitter { 1 };
+    // Telling a Super Resolution feature the frame is display-referred when it is linear HDR is the
+    // LDR path in the programming guide, which quantises to 8 bits and expects a perceptually linear
+    // encoding; handing it linear colour instead produces banding and colour shifting. That is the
+    // most likely reason the model's colours stop matching the upscaler's.
+    //
+    // On by default: the flags follow what the game declared, and the game's own exposure texture is
+    // forwarded. Off restores the cleared flags and the identity exposure.
+    CustomOptional<bool> DlssNrMatchGameColourSpace { true };
 
     // Which way the edit transfer shifts its sample to line up with the jittered frame.
     //

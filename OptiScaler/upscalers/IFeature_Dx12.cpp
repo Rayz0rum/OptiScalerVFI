@@ -257,9 +257,19 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                    */
                   const bool firstPassIsRr = GetUpscalerType() == Upscaler::DLSSD;
 
+                  /*
+                   * No longer a choice. Feeding the enlargement the resolved frame with zero offsets
+                   * was kept for comparison and the comparison is settled: the first pass resolves
+                   * the game's jitter, so that path hands a temporal upscaler one sample position per
+                   * pixel, identical every frame, and it is soft and it warps. There is no title in
+                   * which that is the better answer, and leaving it selectable only invited someone
+                   * to find the bad one.
+                   *
+                   * It can still fail, and then the fallback is the resolved frame anyway -- but as a
+                   * failure, which the jitter decision below follows rather than a setting.
+                   */
                   const bool transferEdit =
                       !spatialEnlarge &&
-                      Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0 &&
                       SecondUpscaler->CreateEditBuffers(input, RenderWidth(), RenderHeight());
 
                   if (transferEdit)
@@ -358,10 +368,34 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                           ? DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue())
                           : DlssNr::report::kNotApplicable;
 
+                  /*
+                   * The enlargement is created for the colour space it is actually handed.
+                   *
+                   * What reaches it is the game's own frame: Neural Rendering returns the picture in
+                   * the space it received it, and the edit transfer applies a near-unity brightness
+                   * ratio to the game's jittered buffer directly. Declaring that display-referred --
+                   * which is what clearing IsHDR does -- selects the guide's LDR path, which
+                   * quantises to 8 bits and expects a perceptually linear encoding, and handing that
+                   * linear colour is the guide's own account of banding and colour shifting.
+                   */
+                  const bool matchColour =
+                      Config::Instance()->DlssNrMatchGameColourSpace.value_or_default();
+                  const bool passIsHdr = matchColour && NRGameIsHdr();
+                  const bool passAutoExposure = matchColour && AutoExposure();
+
+                  ID3D12Resource* passExposure = nullptr;
+
+                  // Only forwarded when this pass has been told to expect an exposure of its own.
+                  // With AutoExposure set DLSS derives one, and with the flags cleared the feature
+                  // falls back to its identity texture.
+                  if (matchColour && !passAutoExposure)
+                      InParameters->Get(NVSDK_NGX_Parameter_ExposureTexture, &passExposure);
+
                   if (!SecondUpscaler->EnsureCreated(InCommandList, RenderWidth(), RenderHeight(),
                                                      DisplayWidth(), DisplayHeight(),
                                                      (int) PerfQualityValue(), DepthInverted(), JitteredMV(),
-                                                     LowResMV(), matchedPreset))
+                                                     LowResMV(), matchedPreset, passIsHdr,
+                                                     passAutoExposure))
                   {
                       // Without the enlargement the frame would be a render-resolution
                       // image in the corner of a display-resolution buffer, so the mode
@@ -379,6 +413,34 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &mvScaleY);
 
                   /*
+                   * Re-read rather than reused, because in Multi-pass Custom they have changed.
+                   *
+                   * paramDepth and paramMotion were captured at the top of Evaluate, before
+                   * ResampleFeature1Inputs rewrote the parameter block. In Multi-pass Custom that
+                   * rewrite is the whole point: it replaces colour, depth and motion vectors with
+                   * copies at the reduced size and scales the motion vector values to match. This
+                   * feature is created at that reduced size -- RenderWidth() has been moved down to
+                   * it -- so handing it the originals gave it full-render-resolution guides for a
+                   * pass expecting smaller ones. DLSS reads the top-left corner of each, which is a
+                   * crop rather than a view, and the motion vector scale read just above had already
+                   * been scaled for the resampled buffers, so the values were wrong by that ratio
+                   * too.
+                   *
+                   * The colour path never had this problem: it is read inside this lambda and so
+                   * always saw the post-resample block. These now do the same.
+                   */
+                  ID3D12Resource* passDepth = paramDepth;
+                  ID3D12Resource* passMotion = paramMotion;
+                  InParameters->Get(NVSDK_NGX_Parameter_Depth, &passDepth);
+                  InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, &passMotion);
+
+                  if (passDepth == nullptr)
+                      passDepth = paramDepth;
+
+                  if (passMotion == nullptr)
+                      passMotion = paramMotion;
+
+                  /*
                    * The first pass was a straight forward of whatever the game asked for -- its create
                    * flags, its motion vector scales and its jitter sequence all untouched. The
                    * divergence is here, and only here.
@@ -386,7 +448,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   float jitterX = 0.0f;
                   float jitterY = 0.0f;
 
-                  if (NRFinalPassForwardsJitter())
+                  if (NRFinalPassForwardsJitter(transferEdit))
                   {
                       InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &jitterX);
                       InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
@@ -415,8 +477,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                   DlssNr::BeginStage(DlssNr::diag::Stage::Enlarge, InCommandList);
 
                   const bool enlarged = SecondUpscaler->Evaluate(
-                      InCommandList, enlargeSource, output, paramDepth, paramMotion, nullptr, jitterX,
-                      jitterY, mvScaleX, mvScaleY,
+                      InCommandList, enlargeSource, output, passDepth, passMotion, passExposure,
+                      jitterX, jitterY, mvScaleX, mvScaleY,
                       SecondUpscaler->ConsumeResetFlag() || gameReset != 0);
 
                   DlssNr::EndStage(DlssNr::diag::Stage::Enlarge, InCommandList);
@@ -750,7 +812,12 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             last.outW = DisplayWidth();
             last.outH = DisplayHeight();
             last.hdr = false; // created with IsHDR cleared; it reads a display-referred picture
-            last.jitter = !spatialEnlarge && NRFinalPassForwardsJitter();
+            /*
+             * The enlargement always gets the real offsets now: the edit transfer is no longer
+             * optional, so what it reads is always the game's jittered frame carrying the model's
+             * work. The only way it sees zeros is the spatial filter, which asks for none.
+             */
+            last.jitter = !spatialEnlarge && NRFinalPassForwardsJitter(true);
 
             if (!spatialEnlarge)
             {

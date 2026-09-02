@@ -213,30 +213,6 @@ void RenderMenu(Config* config, float menuResScale)
                                "\nmismatch falls back to post-process rather than half-applying the"
                                "\narrangement, and says so in the log.");
 
-                static const char* jitterNames[] = { "Resolved frame, zero jitter (old)",
-                                                     "Transfer the edit onto the jittered frame (Recommended)" };
-                int jitterMode = (int) config->DlssNrMultiPassJitter.value_or_default();
-
-                if (ImGui::Combo("DLSS enlargement input", &jitterMode, jitterNames, IM_ARRAYSIZE(jitterNames)))
-                    config->DlssNrMultiPassJitter = (uint32_t) jitterMode;
-
-                HelpMarker("What the DLSS enlargement is fed, when Enlargement is set to DLSS."
-                               "\n\nThe first pass resolves the game's jitter, so its output is"
-                               "\ngrid-aligned. Handing that straight to a temporal upscaler leaves it"
-                               "\nnothing to reconstruct from -- soft, and warping when the camera moves,"
-                               "\nbecause a constant zero offset is not what its history logic expects."
-                               "\n\nTransfer measures how much brighter or darker the model made each"
-                               "\npixel and applies that to the game's ORIGINAL jittered frame, which"
-                               "\nstill has its full subpixel content. The enlargement then gets a"
-                               "\nproperly jittered image carrying the model's work, and the real jitter"
-                               "\noffsets to interpret it by."
-                               "\n\nA brightness ratio, not a per-channel one: the edit is a brightness"
-                               "\ndecision, and applying it per channel would drag the jittered frame's"
-                               "\nhue toward the resolved frame's."
-                               "\n\nRead every frame, so the two can be compared without a restart. If the"
-                               "\ngame declares its motion vectors jittered, the real offsets are"
-                               "\nforwarded regardless; the log says when.");
-
                 {
                     /*
                      * The alignment used to be a three-way guess. It is now derived, and the guess is
@@ -290,6 +266,41 @@ void RenderMenu(Config* config, float menuResScale)
                                "\n\nRaising this trades the structure band for a clean tone transfer."
                                "\nWorth trying first under Ray Reconstruction, where that same band is"
                                "\nthe part that fights the denoise.");
+
+                    float damping = config->DlssNrHighlightDamping.value_or_default();
+
+                    if (ImGui::SliderFloat("Highlight damping", &damping, 0.0f, 1.0f, "%.2f"))
+                        config->DlssNrHighlightDamping = damping;
+
+                    HelpMarker("How completely the transferred edit fades out above the white point."
+                               "\n\nThe model's opinion is least reliable there by construction: the"
+                               "\nencode bounds luminance but not individual channels, so a pixel above"
+                               "\nwhite was shown to it already clipped. And a multiplicative edit"
+                               "\namplifies whatever variation it carries in proportion to what it"
+                               "\nmultiplies, so any residual wobble is loudest at the brightest"
+                               "\npixels -- which reads as sparkle rather than as noise."
+                               "\n\nThis is a trade, not a free fix: it costs the model its highlight"
+                               "\nwork. 0 restores the unfaded behaviour exactly. Turn it down if"
+                               "\nhighlights look flat; leave it up if they flicker.");
+
+                    bool matchColour = config->DlssNrMatchGameColourSpace.value_or_default();
+
+                    if (ImGui::Checkbox("Match the game's colour space", &matchColour))
+                        config->DlssNrMatchGameColourSpace = matchColour;
+
+                    HelpMarker("Whether the enlargement is created for the colour space it is"
+                               "\nactually handed."
+                               "\n\nIt used to be created with IsHDR and AutoExposure cleared, on the"
+                               "\npremise that Neural Rendering hands it a tone-mapped picture. It does"
+                               "\nnot: the pass returns the frame in whatever space it received, and"
+                               "\nthe edit transfer applies a near-unity ratio to the game's own"
+                               "\nbuffer. What arrives is the game's colour space."
+                               "\n\nDeclaring that display-referred selects DLSS's LDR path, which"
+                               "\nquantises to 8 bits and expects a perceptually linear encoding."
+                               "\nGiving it linear colour instead is the programming guide's own"
+                               "\naccount of banding and colour shifting -- the most likely reason the"
+                               "\nmodel's colours stop matching the upscaler's."
+                               "\n\nChanging this rebuilds the enlargement, so expect one reset frame.");
                 }
 
                 static const char* enlargeNames[] = { "DLSS Super Resolution (Recommended)", "Spatial (safe fallback)" };

@@ -192,12 +192,11 @@ bool IFeature::NRFeature1IsResampled() const
  * DLSS's on the SR path, Ray Reconstruction's on the RR path, both through the same parameter and
  * into the same _initFlags.JitteredMV. The branch below consumes that one normalised value.
  */
-bool IFeature::NRFinalPassForwardsJitter() const
+bool IFeature::NRFinalPassForwardsJitter(bool editTransferred) const
 {
     // The member rather than the accessor: that one is not const, and this needs to be.
     const bool mvJittered = _initFlags.JitteredMV;
-    const bool settingForwards = Config::Instance()->DlssNrMultiPassJitter.value_or_default() != 0;
-    const bool forwards = mvJittered || settingForwards;
+    const bool forwards = mvJittered || editTransferred;
 
     // Once per feature, so the console says which pipeline a title took and which vector path it hit
     // without turning into per-frame noise.
@@ -212,7 +211,7 @@ bool IFeature::NRFinalPassForwardsJitter() const
                  mvJittered ? "jittered (MVJittered set, so DLSS cancels the offset itself)"
                             : "not jittered",
                  forwards ? "the game's real" : "zero",
-                 mvJittered && !settingForwards
+                 mvJittered && !editTransferred
                      ? " -- forced by MVJittered, which needs the real offsets to cancel with"
                      : "");
     }

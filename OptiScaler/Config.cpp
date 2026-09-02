@@ -321,7 +321,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrMode.set_from_config(readUInt("DlssNr", "Mode"));
             DlssNrFeature1Pipeline.set_from_config(readUInt("DlssNr", "Feature1Pipeline"));
             DlssNrFeature1Scale.set_from_config(readInt("DlssNr", "Feature1Scale"));
-            DlssNrMultiPassJitter.set_from_config(readUInt("DlssNr", "MultiPassJitter"));
+            DlssNrHighlightDamping.set_from_config(readFloat("DlssNr", "HighlightDamping"));
+            DlssNrMatchGameColourSpace.set_from_config(readBool("DlssNr", "MatchGameColourSpace"));
             DlssNrMultiPassAlign.set_from_config(readInt("DlssNr", "MultiPassAlign"));
             DlssNrMultiPassEnlarge.set_from_config(readUInt("DlssNr", "MultiPassEnlarge"));
             DlssNrResetEveryFrame.set_from_config(readBool("DlssNr", "ResetEveryFrame"));
@@ -1189,8 +1190,10 @@ bool Config::SaveIni()
                  GetIntValue(Instance()->DlssNrMultiPassEnlarge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MultiPassAlign",
                  GetIntValue(Instance()->DlssNrMultiPassAlign.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "MultiPassJitter",
-                 GetIntValue(Instance()->DlssNrMultiPassJitter.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "HighlightDamping",
+                 GetFloatValue(Instance()->DlssNrHighlightDamping.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MatchGameColourSpace",
+                 GetBoolValue(Instance()->DlssNrMatchGameColourSpace.value_for_config()).c_str());
     {
         auto toggle = Instance()->DlssNrToggleKey.value_for_config();
         ini.SetValue("DlssNr", "ToggleKey", GetIntValue(toggle, toggle > 0).c_str());
