@@ -21,6 +21,15 @@ cbuffer Params : register(b0)
     float gAlignY;
     // How strongly to distrust the model's colour where it desaturated what it was shown. 0 disables.
     float gColourGuard;
+    // The floor of the transferred ratio, as gMaxRatio is its ceiling. See the transfer.
+    float gMinRatio;
+    // Radius in pixels of the low-pass applied to the edit before it is transferred. 0 disables and
+    // the taps collapse onto the centre, which is exactly the unfiltered behaviour.
+    float gTransferBlur;
+    // The luminance band across which the transfer crosses from an additive edit to a multiplicative
+    // one, as a fraction of the white point. Below gTransferLo it is entirely additive.
+    float gTransferLo;
+    float gTransferHi;
 };
 
 // How much colour a pixel has, independent of how bright it is: 0 is neutral, 1 fully saturated.
@@ -204,28 +213,85 @@ void main(uint3 id : SV_DispatchThreadID)
          * enhancement rather than merely blurring it. The model's work arrives far weaker than it was.
          *
          * gAlign carries the offset that maps this pixel back to where the resolved pair holds the
-         * same content. Zero restores the unaligned behaviour.
+         * same content, and the host now derives it from the game's own motion vector convention
+         * rather than offering three signs to try: the programming guide states jitter offsets use
+         * the same coordinate and direction system as motion vectors, which makes the direction a
+         * consequence rather than a guess. Zero still restores the unaligned behaviour.
          */
-        const float2 alignUv =
-            (float2(id.xy) + 0.5 + float2(gAlignX, gAlignY)) / float2(gWidth, gHeight);
-
-        const float3 before = Sanitize(gSource.SampleLevel(gLinear, alignUv, 0).rgb);
-        const float3 after = Sanitize(gModel.SampleLevel(gLinear, alignUv, 0).rgb);
-        const float4 jittered = gOriginal.Load(int3(id.xy, 0));
-
-        const float beforeLuma = dot(before, kLuma);
-        const float afterLuma = dot(after, kLuma);
+        const float2 texel = 1.0 / float2(gWidth, gHeight);
+        const float2 alignUv = (float2(id.xy) + 0.5 + float2(gAlignX, gAlignY)) * texel;
 
         /*
-         * Below the noise floor the ratio is meaningless -- a pixel the first pass resolved to almost
-         * nothing divides into anything at all -- so those are passed through rather than amplified.
+         * The edit, optionally low-passed before it is carried across.
+         *
+         * What survives this transfer is a tone decision, and tone is the low-frequency half of what
+         * the model does. The high-frequency half -- structure -- cannot survive being measured on one
+         * image and applied to another that sampled the scene half a pixel elsewhere, and worse, a
+         * misplaced high-frequency ratio does not merely blur: the enlargement averages it across
+         * frames with different offsets and cancels the enhancement outright, which is what makes the
+         * transferred result read as barely doing anything.
+         *
+         * So the band is a control rather than an accident. A radius of zero collapses every tap onto
+         * the centre and reproduces the unfiltered behaviour exactly, so there is one code path and no
+         * branch; raising it surrenders structure and keeps tone, which is the right trade under Ray
+         * Reconstruction in particular, where the structure band is the part that fights the denoise.
+         *
+         * Five taps in a tent, not a box: at the radii that are useful here the difference is
+         * invisible and the cost is not.
          */
+        const float2 tapOffsets[5] = { float2(0.0, 0.0), float2(-1.0, -1.0), float2(1.0, -1.0),
+                                       float2(-1.0, 1.0), float2(1.0, 1.0) };
+        const float tapWeights[5] = { 0.5, 0.125, 0.125, 0.125, 0.125 };
+
+        float beforeLuma = 0.0;
+        float afterLuma = 0.0;
+
+        for (int t = 0; t < 5; ++t)
+        {
+            const float2 uvt = alignUv + tapOffsets[t] * gTransferBlur * texel;
+            const float3 p = Sanitize(gSource.SampleLevel(gLinear, uvt, 0).rgb);
+            const float3 m = Sanitize(gModel.SampleLevel(gLinear, uvt, 0).rgb);
+
+            beforeLuma += dot(p, kLuma) * tapWeights[t];
+            afterLuma += dot(m, kLuma) * tapWeights[t];
+        }
+
+        const float4 jittered = gOriginal.Load(int3(id.xy, 0));
+        const float3 jit = Sanitize(jittered.rgb);
+        const float jitLuma = dot(jit, kLuma);
+
+        /*
+         * Additive near black, multiplicative in the light.
+         *
+         * A ratio diverges as its denominator goes to zero, and the two frames disagree about which
+         * pixels are near zero -- that is the entire point of transferring between them. So a pixel
+         * the first pass resolved to almost nothing produces an enormous ratio, and that ratio then
+         * multiplies a DIFFERENT almost-nothing in the jittered frame. The old floor at 1e-4 did not
+         * fix this; it only moved where the blow-up started.
+         *
+         * An additive delta has no such failure: it is well defined at zero and says exactly what the
+         * model said, which at that brightness is "this should be lifted by so much" rather than "by
+         * so many times". In the highlights the reverse holds, and a ratio is what keeps a bright
+         * surface's shape instead of flattening it. The crossover is a band rather than a threshold
+         * so nothing draws an edge across a gradient that passes through it.
+         *
+         * kLuma sums to one, so adding the delta to all three channels moves the luminance by exactly
+         * the delta -- the additive branch is a luminance statement too, not a channel one.
+         */
+        const float white = max(gWhitePoint, 1e-4);
+        const float delta = afterLuma - beforeLuma;
+
         float ratio = 1.0;
 
-        if (beforeLuma > 1e-4)
-            ratio = clamp(afterLuma / beforeLuma, 1.0 / max(gMaxRatio, 1.0), gMaxRatio);
+        if (beforeLuma > 1e-5)
+            ratio = clamp(afterLuma / beforeLuma, min(gMinRatio, 1.0), max(gMaxRatio, 1.0));
 
-        gTarget[id.xy] = float4(Sanitize(jittered.rgb) * ratio, jittered.a);
+        const float band =
+            smoothstep(gTransferLo * white, max(gTransferHi * white, gTransferLo * white + 1e-6), jitLuma);
+
+        const float3 result = lerp(jit + delta.xxx, jit * ratio, band);
+
+        gTarget[id.xy] = float4(max(result, float3(0.0, 0.0, 0.0)), jittered.a);
         return;
     }
 

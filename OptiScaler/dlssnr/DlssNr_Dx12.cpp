@@ -7,6 +7,9 @@
 #include "DlssNr_Codec.h"
 #include "DlssNr_Probe.h"
 #include "DlssNr_Capture.h"
+#include "DlssNr_Diag.h"
+#include "DlssNr_Jitter.h"
+#include "DlssNr_Report.h"
 
 #include <Config.h>
 #include <State.h>
@@ -119,6 +122,23 @@ codec::Codec g_codec;
 // What the pass costs on the GPU, for the breakdown in the overlay.
 std::unique_ptr<GpuTime_Dx12> g_gpuTime;
 std::optional<double> g_lastGpuTime;
+
+// And where inside the pass it goes. One total says the feature is expensive; it takes the split to
+// say whether that is inference, the codec's own dispatches, or two passes serialising against each
+// other on the same tensor units. Every performance decision below rests on this measurement rather
+// than on an assumption about which stage dominates.
+DlssNr::diag::StageTimers g_stages;
+
+// The offsets each pass was actually handed, watched until the sequence repeats.
+//
+// A phase count is not readable from any parameter -- no game states one -- so the only way to know
+// whether a title meets the guide's recommendation is to watch the offsets go past. It also catches
+// the failure that matters most here: a chain handing a pass one fixed offset every frame reports
+// exactly one phase, and on screen reads as a frame that never resolves.
+DlssNr::jitter::PhaseCounter g_phases[(unsigned int) DlssNr::JitterSite::Count];
+
+// Says what the frame is built out of, once, and again whenever that stops being true.
+DlssNr::report::Latch g_reportLatch;
 
 // Exposure measurement, and the white point derived from it.
 probe::FrameReducer g_reducer;
@@ -898,6 +918,10 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     if (g_gpuTime != nullptr)
         g_gpuTime->Start(cmdList);
 
+    // The total stays; the split is what says whether it is inference or the codec's own dispatches.
+    g_stages.ensure(device);
+    g_stages.beginFrame();
+
     codec::Params encodeParams {};
     encodeParams.mode = codec::MODE_ENCODE;
     // A frame that is already display-referred is handed over untouched: the encode becomes a copy and
@@ -911,7 +935,9 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 
     Barrier(cmdList, target, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    g_stages.start(diag::Stage::Encode, cmdList);
     g_codec.dispatch(cmdList, encodeParams, target, nullptr, nullptr, g_nr.colorCopy, g_nr.hdrCopy);
+    g_stages.end(diag::Stage::Encode, cmdList);
 
     Barrier(cmdList, target, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -931,7 +957,9 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
         down.mode = codec::MODE_DOWNSAMPLE;
         down.width = workWidth;
         down.height = workHeight;
+        g_stages.start(diag::Stage::Downsample, cmdList);
         g_codec.dispatch(cmdList, down, modelInput, nullptr, nullptr, g_nr.colorSmall, nullptr);
+        g_stages.end(diag::Stage::Downsample, cmdList);
         Barrier(cmdList, g_nr.colorSmall, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         modelInput = g_nr.colorSmall;
@@ -954,14 +982,35 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 
     SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
 
+    /*
+     * The game's own scene-transition reset, carried through to the model.
+     *
+     * It was never read here, and that is a real defect rather than an omission of polish. A game
+     * raises InReset on a camera cut or a level load precisely because every temporal accumulator in
+     * the chain has to drop its history at that instant. The first pass obeyed it; the model did not,
+     * and neither did the enlargement -- so a cut left two of the three stages blending against a
+     * scene that no longer exists, and smearing across the transition.
+     *
+     * The RR guide names the same parameter for Ray Reconstruction as the SR guide does for Super
+     * Resolution, so one read serves both pipelines. A partial reset is worse than no reset: the
+     * stages disagree about what frame they are on.
+     */
+    int gameReset = 0;
+    params->Get(NVSDK_NGX_Parameter_Reset, &gameReset);
+
+    g_stages.start(diag::Stage::Inference, cmdList);
+
     const int result = g_nr.evaluate(
         cmdList, g_nr.feature, g_nr.capabilityParams, modelInput, depthIn, motionIn, g_nr.output,
         workWidth, workHeight, guideWidth, guideHeight, g_nr.guideDepthInverted ? 1 : 0,
-        (g_nr.reset || cfg.DlssNrResetEveryFrame.value_or_default()) ? 1 : 0, cfg.DlssNrIntensity.value_or_default(),
+        (g_nr.reset || gameReset != 0 || cfg.DlssNrResetEveryFrame.value_or_default()) ? 1 : 0,
+        cfg.DlssNrIntensity.value_or_default(),
         (int) cfg.DlssNrStyle.value_or_default(), cfg.DlssNrLocalStructure.value_or_default(),
         cfg.DlssNrLocalTone.value_or_default(), cfg.DlssNrSkinStructure.value_or_default(),
         cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWork,
         g_nr.guideMvScaleY * mvToWork);
+
+    g_stages.end(diag::Stage::Inference, cmdList);
 
     g_nr.reset = false;
 
@@ -1025,8 +1074,10 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        g_stages.start(diag::Stage::Resolve, cmdList);
         g_codec.dispatch(cmdList, resolveParams, modelInput, g_nr.output, g_nr.hdrCopy, frameOut,
                          nullptr, motionIn, nullptr);
+        g_stages.end(diag::Stage::Resolve, cmdList);
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -1065,6 +1116,10 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
             if (auto ms = g_gpuTime->ReadGpuTime((ID3D12CommandQueue*) State::Instance().currentCommandQueue);
                 ms.has_value())
                 g_lastGpuTime = ms;
+
+            // Same queue, and the same few frames of latency: a stage with nothing ready keeps the
+            // value it had rather than reporting zero, which would read as free.
+            g_stages.read((ID3D12CommandQueue*) State::Instance().currentCommandQueue);
         }
     }
 
@@ -1112,13 +1167,27 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
         return;
     }
 
+    const Config& cfg = *Config::Instance();
+
     codec::Params params {};
     params.mode = codec::MODE_TRANSFER;
     params.width = width;
     params.height = height;
-    params.maxRatio = Config::Instance()->DlssNrMaxRatio.value_or_default();
+    params.maxRatio = cfg.DlssNrMaxRatio.value_or_default();
+    params.minRatio = cfg.DlssNrMinRatio.value_or_default();
     params.alignX = alignX;
     params.alignY = alignY;
+
+    // The band between the additive and multiplicative branches is a fraction of the white point, not
+    // an absolute luminance: the frame here is the game's own scene colour, where white sits wherever
+    // the game put it, and a fixed threshold would mean something different in every title.
+    params.whitePoint = cfg.DlssNrWhitePointScale.value_or_default();
+    params.transferLo = cfg.DlssNrTransferLo.value_or_default();
+    params.transferHi = cfg.DlssNrTransferHi.value_or_default();
+    params.transferBlur = cfg.DlssNrTransferBlur.value_or_default();
+
+    g_stages.ensure(device);
+    diag::ScopedStage timed(g_stages, diag::Stage::Transfer, cmdList);
 
     Barrier(cmdList, before, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1262,13 +1331,62 @@ bool ResampleFeature1Inputs(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parame
     params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, dstWidth);
     params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, dstHeight);
 
+    /*
+     * The jitter comes down with the buffers.
+     *
+     * Section 3.7.3(2) of the programming guide puts the offsets in pixel space at the render target
+     * size, and underlines that they cannot be given at output resolution the way motion vectors
+     * optionally can. As far as this pass is concerned its render target is now dstWidth x dstHeight,
+     * so the game's offsets -- which are in the game's own render pixels -- overstate the real
+     * displacement by exactly the inverse of the reduction. At 66% that turns a 0.5-pixel offset into
+     * a claimed 0.76 of a pixel, outside the range the guide says a jitter value can even take.
+     *
+     * Section 3.7.4 is the list of what that looks like on screen, and it is worth having written
+     * down because it is easy to attribute to the reduction itself: screen shaking, distant objects
+     * not resolving, a screen-door pattern over the output, static thin features and fine texture
+     * detail going fuzzy.
+     *
+     * Everything downstream reads the offsets back out of this block -- the edit transfer's alignment
+     * and the final pass's own jitter -- and both of those work in this pass's pixel space too, so
+     * rewriting it here is the one place that fixes all three.
+     */
+    float jitterX = 0.0f;
+    float jitterY = 0.0f;
+    params->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &jitterX);
+    params->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
+
+    const float scaledX = jitter::Rescale(jitterX, srcWidth, dstWidth);
+    const float scaledY = jitter::Rescale(jitterY, srcHeight, dstHeight);
+
+    // A reduction can only move an in-range offset further inside the bound, so tripping this means
+    // the game's own offsets were already out of range -- which is worth saying out loud rather than
+    // quietly clamping, because nothing downstream will look wrong in a way that points here.
+    if (!jitter::InBounds(scaledX, scaledY))
+    {
+        static bool warnedBounds = false;
+
+        if (!warnedBounds)
+        {
+            warnedBounds = true;
+            LOG_WARN("DLSS-NR multi-pass custom: jitter offset ({}, {}) is outside the +/-0.5 the "
+                     "programming guide requires, from the game's ({}, {}) at {}x{}. Clamping. Expect "
+                     "the section 3.7.4 symptoms -- shaking, a screen-door pattern, fuzzy thin detail.",
+                     scaledX, scaledY, jitterX, jitterY, srcWidth, srcHeight);
+        }
+    }
+
+    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, jitter::Clamp(scaledX));
+    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, jitter::Clamp(scaledY));
+
+    ObserveJitter(JitterSite::Feature1, jitter::Clamp(scaledX), jitter::Clamp(scaledY));
+
     static bool reported = false;
 
     if (!reported)
     {
         reported = true;
         LOG_INFO("DLSS-NR multi-pass custom: the first pass's inputs are resampled {}x{} -> {}x{} "
-                 "(depth point-sampled), motion vector scale scaled by {}",
+                 "(depth point-sampled), motion vector scale and jitter offsets scaled by {}",
                  srcWidth, srcHeight, dstWidth, dstHeight, (float) dstWidth / (float) srcWidth);
     }
 
@@ -1280,6 +1398,139 @@ bool IsRunning() { return g_nr.feature != nullptr && !g_nr.failed; }
 const char* FailureReason() { return g_nr.failed ? g_nr.reason : ""; }
 
 std::optional<double> LastGpuTime() { return g_lastGpuTime; }
+
+std::optional<double> StageTime(diag::Stage stage)
+{
+    return g_stages.ran(stage) ? g_stages.get(stage) : std::nullopt;
+}
+
+double StageTotal() { return g_stages.total(); }
+
+void BeginStage(diag::Stage stage, ID3D12GraphicsCommandList* cmdList) { g_stages.start(stage, cmdList); }
+
+void EndStage(diag::Stage stage, ID3D12GraphicsCommandList* cmdList) { g_stages.end(stage, cmdList); }
+
+/*
+ * The DLSS render preset in force for a quality mode, read back out of the parameter block.
+ *
+ * Presets are set per performance mode rather than globally, so "which preset is this feature using"
+ * is a question about one specific parameter and there is no way to ask it generically. Worth having
+ * because of what the guide attaches to the answer: section 3.9 states exposure input is only
+ * supported by Presets J and K, and that Preset L always uses AutoExposure. Two Super Resolution
+ * features that land on different presets therefore disagree about the frame's exposure, and nothing
+ * about that disagreement is visible without reading both.
+ *
+ * Returns kNotApplicable when the game named no preset, which is a real and common answer -- most
+ * titles leave it at the driver's default -- and is not the same as preset 0.
+ */
+const char* PresetKeyForQuality(int perfQuality)
+{
+    switch (perfQuality)
+    {
+    case NVSDK_NGX_PerfQuality_Value_MaxPerf:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance;
+    case NVSDK_NGX_PerfQuality_Value_Balanced:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced;
+    case NVSDK_NGX_PerfQuality_Value_MaxQuality:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality;
+    case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance;
+    case NVSDK_NGX_PerfQuality_Value_UltraQuality:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality;
+    case NVSDK_NGX_PerfQuality_Value_DLAA:
+        return NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA;
+    default:
+        return nullptr;
+    }
+}
+
+int PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality)
+{
+    if (params == nullptr)
+        return report::kNotApplicable;
+
+    const char* key = PresetKeyForQuality(perfQuality);
+
+    if (key == nullptr)
+        return report::kNotApplicable;
+
+    unsigned int preset = 0;
+
+    if (params->Get(key, &preset) != NVSDK_NGX_Result_Success)
+        return report::kNotApplicable;
+
+    return (int) preset;
+}
+
+void ObserveJitter(JitterSite site, float x, float y)
+{
+    if ((unsigned int) site < (unsigned int) JitterSite::Count)
+        g_phases[(unsigned int) site].observe(x, y);
+}
+
+void JitterStats(JitterSite site, unsigned int& distinct, bool& settled, unsigned int& outOfBounds)
+{
+    distinct = 0;
+    settled = false;
+    outOfBounds = 0;
+
+    if ((unsigned int) site >= (unsigned int) JitterSite::Count)
+        return;
+
+    const auto& counter = g_phases[(unsigned int) site];
+    distinct = counter.distinct();
+    settled = counter.settled();
+    outOfBounds = counter.outOfBounds();
+}
+
+void DerivedAlign(float jitterX, float jitterY, float mvScaleX, float mvScaleY, float& outX, float& outY)
+{
+    const int setting = Config::Instance()->DlssNrMultiPassAlign.value_or_default();
+
+    // 2 is the derived answer; anything else is the manual override it used to be, applied as a plain
+    // multiplier so 0 still means "do not align at all".
+    if (setting == 2)
+    {
+        jitter::AlignFromJitter(jitterX, jitterY, mvScaleX, mvScaleY, outX, outY);
+        return;
+    }
+
+    outX = jitterX * (float) setting;
+    outY = jitterY * (float) setting;
+}
+
+void LogIntegration(const report::Integration& in)
+{
+    if (std::string line = g_reportLatch.update(in); !line.empty())
+        LOG_INFO("{}", line);
+
+    /*
+     * The phase verdict is emitted on its own schedule, not with the line.
+     *
+     * It is the one part of the report that is a judgement rather than a fact, and it cannot be made
+     * at the moment the line is first printed: the count is still climbing then. So it waits for the
+     * sequence to be observed repeating -- until that happens a low number means "early", not
+     * "short", and warning on it would cry wolf on every launch.
+     */
+    static bool warned[report::Integration::kMaxPasses] = {};
+
+    for (unsigned int i = 0; i < in.passCount && i < report::Integration::kMaxPasses; ++i)
+    {
+        const auto& p = in.passes[i];
+
+        if (warned[i] || p.phasesWanted == 0 || !p.phasesSettled || p.phases >= p.phasesWanted)
+            continue;
+
+        warned[i] = true;
+
+        LOG_WARN("DLSS-NR {}: {} distinct jitter phases where the guide asks for {}. Section 3.7.1.1 "
+                 "sets the count from the pixel area ratio -- 8 at 1:1, 32 at half resolution -- and "
+                 "Ray Reconstruction raises the floor to 32 whatever the ratio. Below it the frame "
+                 "does not fully resolve: thin static detail stays fuzzy and a screen-door pattern "
+                 "can appear.",
+                 p.name, p.phases, p.phasesWanted);
+    }
+}
 
 void RequestCapture(unsigned int frames)
 {
@@ -1359,6 +1610,11 @@ void Shutdown()
     g_capture.release();
     g_gpuTime.reset();
     g_lastGpuTime.reset();
+    g_stages.destroy();
+    g_reportLatch.reset();
+
+    for (auto& counter : g_phases)
+        counter.reset();
 
     g_codec.destroy();
     g_reducer.destroy();

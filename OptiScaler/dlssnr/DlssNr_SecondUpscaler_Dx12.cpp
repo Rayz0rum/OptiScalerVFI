@@ -6,6 +6,7 @@
 
 
 #include "DlssNr_SecondUpscaler_Dx12.h"
+#include "DlssNr_Dx12.h"
 
 #include <Config.h>
 #include <State.h>
@@ -162,7 +163,7 @@ void DlssNr_SecondUpscaler_Dx12::Release()
 bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth,
                                            uint32_t renderHeight, uint32_t displayWidth, uint32_t displayHeight,
                                            int perfQuality, bool depthInverted, bool jitteredMV,
-                                           bool lowResMV)
+                                           bool lowResMV, int preset)
 {
     if (_createFailed || cmdList == nullptr || renderWidth == 0 || displayWidth == 0)
         return false;
@@ -236,6 +237,22 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     _params->Set(NVSDK_NGX_Parameter_VisibilityNodeMask, 1);
     _params->Set(NVSDK_NGX_Parameter_Sharpness, 0.0f);
 
+    /*
+     * Put on the same preset as the first pass, when one is known.
+     *
+     * Leaving it unset is not neutral. The driver then chooses independently from this feature's own
+     * ratio, so the two Super Resolution passes in the chain can end up on presets that disagree
+     * about the frame -- and the guide attaches behaviour to that choice rather than only quality.
+     * Exposure input is supported by Presets J and K alone, and Preset L always uses AutoExposure;
+     * this feature deliberately clears AutoExposure and binds an identity exposure texture, so a
+     * driver landing it on L would ignore that texture and auto-expose an already-normalised picture.
+     */
+    if (preset >= 0)
+    {
+        if (const char* presetKey = DlssNr::PresetKeyForQuality(perfQuality); presetKey != nullptr)
+            _params->Set(presetKey, (unsigned int) preset);
+    }
+
     NVSDK_NGX_Result result =
         createFeature(cmdList, NVSDK_NGX_Feature_SuperSampling, _params, &_handle);
 
@@ -258,10 +275,12 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
     _needsReset = true;
 
     LOG_INFO("{}: created, {}x{} -> {}x{}, IsHDR cleared, identity exposure, motion vectors at {} (as "
-             "the game declared them), depth {}, vectors {}",
+             "the game declared them), depth {}, vectors {}, preset {}",
              _name, renderWidth, renderHeight, displayWidth, displayHeight,
              lowResMV ? "render resolution" : "display resolution", depthInverted ? "inverted" : "normal",
-             jitteredMV ? "jittered" : "not jittered");
+             jitteredMV ? "jittered" : "not jittered",
+             preset >= 0 ? std::to_string(preset) : std::string("left to the driver -- it may not match "
+                                                                "the first pass"));
 
     return true;
 }

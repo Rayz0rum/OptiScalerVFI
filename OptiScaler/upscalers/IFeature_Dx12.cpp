@@ -314,28 +314,54 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                            * misplacement across offsets and cancels the edit rather than blurring it,
                            * which reads as the model barely doing anything.
                            */
+                          float jitterX = 0.0f;
+                          float jitterY = 0.0f;
+                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &jitterX);
+                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
+
+                          float mvSignX = 1.0f;
+                          float mvSignY = 1.0f;
+                          InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &mvSignX);
+                          InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &mvSignY);
+
+                          /*
+                           * Derived rather than tried. The programming guide states jitter offsets
+                           * use the same coordinate and direction system as motion vectors, with
+                           * (0,0) meaning no jitter -- so the direction follows from the motion
+                           * vector convention the game already declares, and the offset itself is
+                           * negated because it displaces the rasterised scene. The manual override
+                           * is still there for an engine that disagrees with the guide.
+                           */
                           float alignX = 0.0f;
                           float alignY = 0.0f;
-                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &alignX);
-                          InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &alignY);
-
-                          const float alignSign =
-                              (float) Config::Instance()->DlssNrMultiPassAlign.value_or_default();
+                          DlssNr::DerivedAlign(jitterX, jitterY, mvSignX, mvSignY, alignX, alignY);
 
                           DlssNr::TransferEditOntoJittered(InCommandList, SecondUpscaler->EditBefore(),
                                                            input, paramColor, SecondUpscaler->EditResult(),
-                                                           RenderWidth(), RenderHeight(),
-                                                           alignX * alignSign, alignY * alignSign);
+                                                           RenderWidth(), RenderHeight(), alignX, alignY);
                           enlargeSource = SecondUpscaler->EditResult();
                       }
                   }
 
 
 
+                  /*
+                   * The enlargement is put on the first pass's preset by default.
+                   *
+                   * Two Super Resolution features in one frame on independently chosen presets can
+                   * disagree about the exposure of the picture they are passing between them -- the
+                   * guide supports exposure input on Presets J and K only, and Preset L always uses
+                   * AutoExposure, which this pass has deliberately cleared.
+                   */
+                  const int matchedPreset =
+                      Config::Instance()->DlssNrMatchPreset.value_or_default()
+                          ? DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue())
+                          : DlssNr::report::kNotApplicable;
+
                   if (!SecondUpscaler->EnsureCreated(InCommandList, RenderWidth(), RenderHeight(),
                                                      DisplayWidth(), DisplayHeight(),
                                                      (int) PerfQualityValue(), DepthInverted(), JitteredMV(),
-                                                     LowResMV()))
+                                                     LowResMV(), matchedPreset))
                   {
                       // Without the enlargement the frame would be a render-resolution
                       // image in the corner of a display-resolution buffer, so the mode
@@ -366,9 +392,36 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                       InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &jitterY);
                   }
 
-                  return SecondUpscaler->Evaluate(InCommandList, enlargeSource, output, paramDepth, paramMotion,
-                                                  nullptr, jitterX, jitterY, mvScaleX, mvScaleY,
-                                                  SecondUpscaler->ConsumeResetFlag());
+                  /*
+                   * Recorded whether it is the game's sequence or the deliberate zeros, because the
+                   * zeros are the case worth being able to prove. One distinct phase, forever, is what
+                   * this pass is meant to be given -- and if the count ever reads anything else, the
+                   * setting is not doing what it says.
+                   */
+                  DlssNr::ObserveJitter(DlssNr::JitterSite::Final, jitterX, jitterY);
+
+                  /*
+                   * The game's scene-transition reset reaches the enlargement too.
+                   *
+                   * Three temporal accumulators run in this chain -- the first pass, the model, and
+                   * this one -- and a reset that lands on some of them is worse than one that lands on
+                   * none: the stages then disagree about which scene they are accumulating. A cut used
+                   * to reset only the first pass, so the enlargement kept blending the old scene's
+                   * history into the new one and smeared straight through the transition.
+                   */
+                  int gameReset = 0;
+                  InParameters->Get(NVSDK_NGX_Parameter_Reset, &gameReset);
+
+                  DlssNr::BeginStage(DlssNr::diag::Stage::Enlarge, InCommandList);
+
+                  const bool enlarged = SecondUpscaler->Evaluate(
+                      InCommandList, enlargeSource, output, paramDepth, paramMotion, nullptr, jitterX,
+                      jitterY, mvScaleX, mvScaleY,
+                      SecondUpscaler->ConsumeResetFlag() || gameReset != 0);
+
+                  DlssNr::EndStage(DlssNr::diag::Stage::Enlarge, InCommandList);
+
+                  return enlarged;
               } });
     }
 #endif
@@ -572,7 +625,186 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         DlssNr::ResampleFeature1Inputs(InCommandList, InParameters, NRSourceWidth(), NRSourceHeight(),
                                        f1Width, f1Height);
     }
+    else
+    {
+        /*
+         * The first pass takes the game's sequence untouched here, so this is where it gets watched.
+         *
+         * Only in the else branch: the resample records the offsets it has just rescaled, which are
+         * the ones that pass will actually see, and observing the same value twice a frame would make
+         * the counter believe the sequence had cycled when it has only been read twice.
+         */
+        float f1JitterX = 0.0f;
+        float f1JitterY = 0.0f;
+        InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_X, &f1JitterX);
+        InParameters->Get(NVSDK_NGX_Parameter_Jitter_Offset_Y, &f1JitterY);
+        DlssNr::ObserveJitter(DlssNr::JitterSite::Feature1, f1JitterX, f1JitterY);
+    }
 #endif
+#if OPTI_DLSSNR
+    /*
+     * One line in the log saying what this frame is actually built out of.
+     *
+     * Emitted here because this is the last point before the first pass runs at which every fact is
+     * settled -- the parameter block is final, the resample has happened if it was going to, and the
+     * arrangement cannot change again this frame. Re-emitted only when the structure changes, so a
+     * placement change mid-session is visible and a steady session costs one line.
+     *
+     * The point of it is support. Every question asked about this feature so far has been answerable
+     * from data the code already had at the time, and asking for it one round trip at a time is how a
+     * five-minute diagnosis becomes a week.
+     */
+    if (DlssNr::IsRunning() || NRBuiltMode() != DlssNr::Mode::PostProcess)
+    {
+        DlssNr::report::Integration integration {};
+        integration.backend = "D3D12";
+        integration.gameHdr = NRGameIsHdr();
+        integration.mvLowRes = LowResMV();
+        integration.mvJittered = JitteredMV();
+        integration.depthInverted = DepthInverted();
+        integration.scaleFactor =
+            NRSourceWidth() != 0 ? (float) DisplayWidth() / (float) NRSourceWidth() : 1.0f;
+
+        const bool firstPassIsRr = GetUpscalerType() == Upscaler::DLSSD;
+        const int preset = DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue());
+
+        unsigned int distinct = 0;
+        unsigned int outOfBounds = 0;
+        bool settled = false;
+
+        switch (NRBuiltMode())
+        {
+        case DlssNr::Mode::UpscaleWithSR:
+        {
+            integration.topology = "nr>sr";
+
+            DlssNr::report::Pass nr {};
+            nr.name = "NR";
+            nr.inW = nr.outW = RenderWidth();
+            nr.inH = nr.outH = RenderHeight();
+            nr.hdr = NRGameIsHdr();
+            nr.jitter = false; // the model takes motion vectors and a reset, never offsets
+            integration.add(nr);
+
+            DlssNr::report::Pass sr {};
+            sr.name = "SR";
+            sr.inW = RenderWidth();
+            sr.inH = RenderHeight();
+            sr.outW = TargetWidth();
+            sr.outH = TargetHeight();
+            sr.preset = preset;
+            sr.hdr = IsHdr();
+            sr.exposure = AutoExposure();
+            DlssNr::JitterStats(DlssNr::JitterSite::Feature1, distinct, settled, outOfBounds);
+            sr.phases = distinct;
+            sr.phasesSettled = settled;
+            sr.phasesWanted = DlssNr::jitter::RecommendedPhases(RenderWidth(), RenderHeight(),
+                                                                TargetWidth(), TargetHeight());
+            integration.add(sr);
+            break;
+        }
+
+        case DlssNr::Mode::MultiPass:
+        case DlssNr::Mode::MultiPassCustom:
+        {
+            integration.topology = firstPassIsRr
+                                       ? (spatialEnlarge ? "rr1>nr>spatial" : "rr1>nr>sr2")
+                                       : (spatialEnlarge ? "sr1>nr>spatial" : "sr1>nr>sr2");
+
+            DlssNr::report::Pass first {};
+            first.name = firstPassIsRr ? "RR1" : "SR1";
+            first.inW = first.outW = RenderWidth();
+            first.inH = first.outH = RenderHeight();
+            first.preset = preset;
+            first.hdr = IsHdr();
+
+            /*
+             * The RR guide states exposure, auto-exposure and sharpness are not supported by Ray
+             * Reconstruction and tells integrators to ignore the corresponding sections outright. So
+             * an RR first pass reporting exposure=1 here is a defect, not a configuration -- which is
+             * exactly the kind of thing that degrades quality without ever failing.
+             */
+            first.exposure = !firstPassIsRr && AutoExposure();
+            DlssNr::JitterStats(DlssNr::JitterSite::Feature1, distinct, settled, outOfBounds);
+            first.phases = distinct;
+            first.phasesSettled = settled;
+            first.phasesWanted =
+                firstPassIsRr ? DlssNr::jitter::RecommendedPhasesRr(RenderWidth(), RenderHeight(),
+                                                                    RenderWidth(), RenderHeight())
+                              : DlssNr::jitter::RecommendedPhases(RenderWidth(), RenderHeight(),
+                                                                  RenderWidth(), RenderHeight());
+            integration.add(first);
+
+            DlssNr::report::Pass nr {};
+            nr.name = "NR";
+            nr.inW = nr.outW = RenderWidth();
+            nr.inH = nr.outH = RenderHeight();
+            nr.hdr = NRGameIsHdr();
+            nr.jitter = false;
+            integration.add(nr);
+
+            DlssNr::report::Pass last {};
+            last.name = spatialEnlarge ? "SPATIAL" : "SR2";
+            last.inW = RenderWidth();
+            last.inH = RenderHeight();
+            last.outW = DisplayWidth();
+            last.outH = DisplayHeight();
+            last.hdr = false; // created with IsHDR cleared; it reads a display-referred picture
+            last.jitter = !spatialEnlarge && NRFinalPassForwardsJitter();
+
+            if (!spatialEnlarge)
+            {
+                DlssNr::JitterStats(DlssNr::JitterSite::Final, distinct, settled, outOfBounds);
+                last.phases = distinct;
+                last.phasesSettled = settled;
+
+                /*
+                 * Only asked for when the offsets are being forwarded. When they are deliberately
+                 * zeroed the pass has one phase on purpose, and holding that against the guide's
+                 * recommendation would be reporting the design as a fault.
+                 */
+                if (last.jitter)
+                    last.phasesWanted = DlssNr::jitter::RecommendedPhases(
+                        RenderWidth(), RenderHeight(), DisplayWidth(), DisplayHeight());
+            }
+
+            integration.add(last);
+            break;
+        }
+
+        default:
+            integration.topology = "post";
+
+            DlssNr::report::Pass sr {};
+            sr.name = "SR";
+            sr.inW = RenderWidth();
+            sr.inH = RenderHeight();
+            sr.outW = TargetWidth();
+            sr.outH = TargetHeight();
+            sr.preset = preset;
+            sr.hdr = IsHdr();
+            sr.exposure = AutoExposure();
+            DlssNr::JitterStats(DlssNr::JitterSite::Feature1, distinct, settled, outOfBounds);
+            sr.phases = distinct;
+            sr.phasesSettled = settled;
+            sr.phasesWanted = DlssNr::jitter::RecommendedPhases(RenderWidth(), RenderHeight(),
+                                                                TargetWidth(), TargetHeight());
+            integration.add(sr);
+
+            DlssNr::report::Pass nr {};
+            nr.name = "NR";
+            nr.inW = nr.outW = TargetWidth();
+            nr.inH = nr.outH = TargetHeight();
+            nr.hdr = NRGameIsHdr();
+            nr.jitter = false;
+            integration.add(nr);
+            break;
+        }
+
+        DlssNr::LogIntegration(integration);
+    }
+#endif
+
     UpscalerTime->Start(InCommandList);
 
     auto evalResult = EvaluateInternal(InCommandList, InParameters);

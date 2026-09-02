@@ -325,11 +325,16 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrMultiPassAlign.set_from_config(readInt("DlssNr", "MultiPassAlign"));
             DlssNrMultiPassEnlarge.set_from_config(readUInt("DlssNr", "MultiPassEnlarge"));
             DlssNrResetEveryFrame.set_from_config(readBool("DlssNr", "ResetEveryFrame"));
+            DlssNrMatchPreset.set_from_config(readBool("DlssNr", "MatchPreset"));
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
             DlssNrColourGuard.set_from_config(readFloat("DlssNr", "ColourGuard"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
+            DlssNrMinRatio.set_from_config(readFloat("DlssNr", "MinRatio"));
+            DlssNrTransferBlur.set_from_config(readFloat("DlssNr", "TransferBlur"));
+            DlssNrTransferLo.set_from_config(readFloat("DlssNr", "TransferLo"));
+            DlssNrTransferHi.set_from_config(readFloat("DlssNr", "TransferHi"));
             DlssNrDebugView.set_from_config(readUInt("DlssNr", "DebugView"));
             DlssNrWorkingScale.set_from_config(readFloat("DlssNr", "WorkingScale"));
             DlssNrAutoCapture.set_from_config(readBool("DlssNr", "AutoCapture"));
@@ -1179,6 +1184,7 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Feature1Scale", GetIntValue(Instance()->DlssNrFeature1Scale.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ResetEveryFrame",
                  GetBoolValue(Instance()->DlssNrResetEveryFrame.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MatchPreset", GetBoolValue(Instance()->DlssNrMatchPreset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MultiPassEnlarge",
                  GetIntValue(Instance()->DlssNrMultiPassEnlarge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MultiPassAlign",
@@ -1195,6 +1201,11 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->DlssNrColourStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ColourGuard", GetFloatValue(Instance()->DlssNrColourGuard.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MaxRatio", GetFloatValue(Instance()->DlssNrMaxRatio.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MinRatio", GetFloatValue(Instance()->DlssNrMinRatio.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "TransferBlur",
+                 GetFloatValue(Instance()->DlssNrTransferBlur.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "TransferLo", GetFloatValue(Instance()->DlssNrTransferLo.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "TransferHi", GetFloatValue(Instance()->DlssNrTransferHi.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DebugView", GetIntValue(Instance()->DlssNrDebugView.value_for_config()).c_str());
     ini.SetValue("DlssNr", "WorkingScale", GetFloatValue(Instance()->DlssNrWorkingScale.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AutoCapture", GetBoolValue(Instance()->DlssNrAutoCapture.value_for_config()).c_str());

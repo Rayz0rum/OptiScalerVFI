@@ -115,6 +115,55 @@ void RenderMenu(Config* config, float menuResScale)
                                   "\nmodel. Timing only the model would flatter the number."
                                   "\n\nCompare it against the frame time at the bottom of this window to"
                                   "\nsee what it is costing you.");
+
+            /*
+             * The split, not just the total.
+             *
+             * A single number says the feature is expensive and nothing about why, and the two
+             * answers point at completely different work: if inference dominates, running the model
+             * smaller or less often pays; if the codec's own dispatches or the enlargement do, both
+             * are effort spent in the wrong place. Neural Rendering, Super Resolution and frame
+             * generation also compete for the same tensor units, so on a power-limited part a share
+             * of this is contention rather than work -- which only shows up as a stage costing more
+             * here than the same stage costs on its own.
+             */
+            if (ImGui::TreeNode("Cost by stage"))
+            {
+                const DlssNr::diag::Stage stages[] = {
+                    DlssNr::diag::Stage::Encode,    DlssNr::diag::Stage::Downsample,
+                    DlssNr::diag::Stage::Inference, DlssNr::diag::Stage::Resolve,
+                    DlssNr::diag::Stage::Transfer,  DlssNr::diag::Stage::Enlarge
+                };
+
+                const double total = DlssNr::StageTotal();
+
+                for (const auto stage : stages)
+                {
+                    const auto value = DlssNr::StageTime(stage);
+
+                    if (!value.has_value())
+                    {
+                        // A dash rather than 0.00: a stage that did not run in this arrangement has
+                        // no cost to report, and a zero would read as "free".
+                        ImGui::TextDisabled("%-11s      -", DlssNr::diag::StageName(stage));
+                        continue;
+                    }
+
+                    ImGui::Text("%-11s %6.3f ms  %4.1f%%", DlssNr::diag::StageName(stage), *value,
+                                total > 0.0 ? (*value / total) * 100.0 : 0.0);
+                }
+
+                ImGui::Separator();
+                ImGui::Text("%-11s %6.3f ms", "measured", total);
+
+                HelpMarker("Timestamp pairs around each dispatch, read back a few frames later."
+                           "\n\nThe stages overlap on the GPU, so the sum is not the frame's real"
+                           "\ncost -- it is the right denominator for asking what share each stage"
+                           "\nis, which is the question that decides what is worth optimising."
+                           "\n\nA dash means the stage did not run in this arrangement.");
+
+                ImGui::TreePop();
+            }
         }
 
         ImGui::Spacing();
@@ -187,6 +236,61 @@ void RenderMenu(Config* config, float menuResScale)
                                "\n\nRead every frame, so the two can be compared without a restart. If the"
                                "\ngame declares its motion vectors jittered, the real offsets are"
                                "\nforwarded regardless; the log says when.");
+
+                {
+                    /*
+                     * The alignment used to be a three-way guess. It is now derived, and the guess is
+                     * kept only as an override -- so the default is first and the manual signs read
+                     * as what they are.
+                     */
+                    static const char* alignNames[] = { "Derived from the motion vectors (Recommended)",
+                                                        "Manual: +1", "Manual: -1", "Off" };
+                    const int alignValues[] = { 2, 1, -1, 0 };
+
+                    const int current = config->DlssNrMultiPassAlign.value_or_default();
+                    int index = 0;
+
+                    for (int i = 0; i < IM_ARRAYSIZE(alignValues); ++i)
+                    {
+                        if (alignValues[i] == current)
+                            index = i;
+                    }
+
+                    if (ImGui::Combo("Edit alignment", &index, alignNames, IM_ARRAYSIZE(alignNames)))
+                        config->DlssNrMultiPassAlign = alignValues[index];
+
+                    HelpMarker("Where the transfer samples the resolved frame to line its edit up with"
+                               "\nthe jittered one."
+                               "\n\nThe ratio is measured on the resolved frame and applied to the"
+                               "\njittered one, and the same scene feature sits up to half a pixel apart"
+                               "\nin the two. Get the direction wrong and the misalignment doubles rather"
+                               "\nthan cancelling -- and the enlargement then averages it away across"
+                               "\njitter offsets, taking the model's work with it. That is what \"the"
+                               "\ntransfer makes NR do almost nothing\" looks like."
+                               "\n\nDerived is the default. The programming guide states jitter offsets"
+                               "\nuse the same coordinate and direction system as motion vectors, so the"
+                               "\ndirection follows from the motion vector convention the game already"
+                               "\ndeclares rather than from trying values."
+                               "\n\nThe manual signs remain for an engine that disagrees with the guide."
+                               "\nOff disables the alignment entirely.");
+
+                    float blur = config->DlssNrTransferBlur.value_or_default();
+
+                    if (ImGui::SliderFloat("Transfer band", &blur, 0.0f, 4.0f, "%.2f px"))
+                        config->DlssNrTransferBlur = blur;
+
+                    HelpMarker("How much of the edit's fine detail survives the transfer, as a low-pass"
+                               "\nradius in pixels. 0 transfers it unfiltered, which is what earlier"
+                               "\nbuilds did."
+                               "\n\nA brightness ratio measured on one image and applied to another that"
+                               "\nsampled the scene half a pixel elsewhere carries tone faithfully and"
+                               "\nstructure not at all. A misplaced structure band is worse than a"
+                               "\nmissing one: the enlargement averages it away across offsets and takes"
+                               "\nthe model's work with it."
+                               "\n\nRaising this trades the structure band for a clean tone transfer."
+                               "\nWorth trying first under Ray Reconstruction, where that same band is"
+                               "\nthe part that fights the denoise.");
+                }
 
                 static const char* enlargeNames[] = { "DLSS Super Resolution (Recommended)", "Spatial (safe fallback)" };
                 int enlarge = (int) config->DlssNrMultiPassEnlarge.value_or_default();

@@ -312,10 +312,39 @@ class Config
     // puts the edit on the feature it belongs to; without it the enlargement's accumulation averages
     // the misplacement across offsets and cancels the edit, which reads as the model barely acting.
     //
-    // The sign depends on the engine's jitter convention, which is not something to guess: +1 and -1
-    // are both offered, and the wrong one doubles the misalignment rather than removing it. 0 disables
-    // the alignment entirely. If +1 looks weaker than 0, the answer is -1.
-    CustomOptional<int> DlssNrMultiPassAlign { 1 };
+    // 2 derives the direction, and is the default. The programming guide states that jitter offsets
+    // use the same coordinate and direction system as motion vectors, with (0,0) meaning no jitter --
+    // which makes the sign a consequence of the motion vector convention the game already declares,
+    // not a coin flip. The offset displaces the rasterised scene, so the content at pixel p in the
+    // jittered frame sits at p minus the offset in the resolved one, in whichever direction the
+    // motion vector scale says that axis runs.
+    //
+    // +1, -1 and 0 remain as manual overrides for an engine that disagrees with the guide. The wrong
+    // sign doubles the misalignment rather than removing it, so if the derived answer looks weaker
+    // than 0, the opposite sign is the thing to try.
+    CustomOptional<int> DlssNrMultiPassAlign { 2 };
+
+    // How much of the edit's high-frequency band survives the transfer, as a low-pass radius in pixels
+    // applied to the ratio field. 0 transfers it unfiltered, which is the previous behaviour exactly.
+    //
+    // A brightness ratio measured on one image and applied to another that sampled the scene half a
+    // pixel elsewhere can carry tone faithfully and structure not at all -- and a misplaced structure
+    // band is worse than a missing one, because the enlargement averages it across jitter offsets and
+    // cancels the model's work rather than merely softening it. Raising this trades the structure band
+    // for a clean tone transfer, which is the trade worth making under Ray Reconstruction, where that
+    // same band is what fights the denoise.
+    CustomOptional<float> DlssNrTransferBlur { 0.0f };
+
+    // The luminance band, as a fraction of the measured white point, across which the transfer crosses
+    // from an additive edit to a multiplicative one.
+    //
+    // A ratio diverges as its denominator approaches zero, and the two frames disagree about which
+    // pixels are near zero -- which is the whole reason there are two of them. Below TransferLo the
+    // edit is carried as an absolute delta instead, which is well behaved there and is also what the
+    // model is actually saying at that brightness. Above TransferHi it is a ratio, which is what keeps
+    // a bright surface's shape rather than flattening it.
+    CustomOptional<float> DlssNrTransferLo { 0.01f };
+    CustomOptional<float> DlssNrTransferHi { 0.08f };
 
     // How the multi-pass chain performs its enlargement.
     //
@@ -334,6 +363,18 @@ class Config
     // The temporal option is kept because it is what the arrangement was originally specified as, and
     // a title whose first pass leaves more for it to work with may yet prefer it.
     CustomOptional<uint32_t> DlssNrMultiPassEnlarge { 0 };
+
+    // Whether the second Super Resolution pass is put on the same render preset as the first.
+    //
+    // It was on no preset at all, which is not the same as being on the driver's default -- it means
+    // the driver picks one from the ratio, independently, and the two passes can land on presets that
+    // disagree about the frame. That is not cosmetic. The programming guide states exposure input is
+    // only supported by Presets J and K, and that Preset L always uses AutoExposure; this pass binds
+    // an identity exposure texture with AutoExposure cleared, so a driver choosing L for it would
+    // ignore that texture and auto-expose an already-normalised picture.
+    //
+    // On by default. Off leaves the preset unset, which is the previous behaviour.
+    CustomOptional<bool> DlssNrMatchPreset { true };
 
     // Forces DLSSNR.Reset every frame, as a diagnostic.
     //
@@ -381,6 +422,15 @@ class Config
     // The most the pass may multiply or divide a pixel by. A detail pass has no business restyling a
     // light source, whatever the model returns.
     CustomOptional<float> DlssNrMaxRatio { 2.0f };
+
+    // The other end of that bound, for the transfer.
+    //
+    // Kept separate rather than derived as 1/MaxRatio because the two ends fail differently. The
+    // ceiling is what blows a highlight out, and 2.0 is a tested value there. The floor is where a
+    // near-black denominator used to send the ratio, and it can safely sit lower now that the transfer
+    // is additive at those luminances -- the bound is a backstop for a single misbehaving pixel rather
+    // than the mechanism that keeps the maths sane.
+    CustomOptional<float> DlssNrMinRatio { 0.25f };
 
     // 0 off, 1 the picture the model was shown, 2 its raw answer, 3 what it changed, amplified.
     CustomOptional<uint32_t> DlssNrDebugView { 0 };

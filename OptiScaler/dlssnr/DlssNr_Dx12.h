@@ -3,6 +3,10 @@
 #include <d3d12.h>
 #include <nvsdk_ngx.h>
 
+#include "DlssNr_Diag.h"
+#include "DlssNr_Jitter.h"
+#include "DlssNr_Report.h"
+
 // DLSS 5 Neural Rendering, run over the upscaler's output.
 //
 // Neural Rendering is a post-process, not an upscaler and not a denoiser: it takes a finished frame plus
@@ -98,6 +102,70 @@ const char* FailureReason();
 
 // What the pass last cost on the GPU, in milliseconds, or nothing if it has not been measured yet.
 std::optional<double> LastGpuTime();
+
+// And the same per stage, so the total can be attributed rather than guessed at. Nothing when the
+// stage did not run this frame, which the overlay has to distinguish from a stage that cost nothing.
+std::optional<double> StageTime(diag::Stage stage);
+
+// The stages that ran, added up. Not the frame's Neural Rendering cost -- work overlaps on the GPU --
+// but the right denominator for asking what share of it a given stage is.
+double StageTotal();
+
+// Records a stage from outside this module -- the enlargement is a whole second feature living in its
+// own translation unit, and it is exactly the stage the multi-pass cost question is about.
+void BeginStage(diag::Stage stage, ID3D12GraphicsCommandList* cmdList);
+void EndStage(diag::Stage stage, ID3D12GraphicsCommandList* cmdList);
+
+/*
+ * Which pass's jitter is being reported.
+ *
+ * Only two sites matter. The first pass takes the game's sequence, possibly rescaled for a reduced
+ * render target; the final enlargement takes either the game's offsets or zeros. Everything the
+ * acceptance criteria ask about jitter is a question about one of those two.
+ */
+enum class JitterSite : unsigned int
+{
+    Feature1 = 0,
+    Final = 1,
+    Count
+};
+
+/*
+ * The DLSS render preset in force for a quality mode, out of the parameter block, or
+ * report::kNotApplicable when the game named none.
+ *
+ * Presets are set per performance mode, so there is no generic way to ask which one a feature is on.
+ * The answer matters here because of what the guide hangs off it: exposure input is only supported by
+ * Presets J and K, and Preset L always uses AutoExposure -- so two Super Resolution passes on
+ * different presets disagree about the frame's exposure, invisibly.
+ */
+int PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality);
+
+// The parameter name a preset for that quality mode lives under, or nullptr for a mode that has none.
+// Presets are per performance mode, so writing one means picking the right key first.
+const char* PresetKeyForQuality(int perfQuality);
+
+// Records an offset a pass was actually given. Cheap enough for the per-frame path.
+void ObserveJitter(JitterSite site, float x, float y);
+
+// Distinct offsets seen, whether the sequence has been observed to repeat (so a low count can be
+// trusted as final rather than merely early), and how many fell outside the guide's +/-0.5.
+void JitterStats(JitterSite site, unsigned int& distinct, bool& settled, unsigned int& outOfBounds);
+
+/*
+ * Where the edit transfer must sample the resolved pair so its ratio lands on the content the
+ * jittered frame holds at this pixel.
+ *
+ * Replaces the three-way sign guess with a derivation. The programming guide states jitter offsets
+ * use the same coordinate and direction system as motion vectors, with (0,0) meaning no jitter, so
+ * the direction follows from the motion vector convention the game already declares rather than from
+ * trying values. The manual override remains for an engine that disagrees with the guide.
+ */
+void DerivedAlign(float jitterX, float jitterY, float mvScaleX, float mvScaleY, float& outX, float& outY);
+
+// Emits the structured integration line, if anything about the arrangement has changed since the last
+// one. Also raises the phase-count warning, which is the one part of the report that is a verdict.
+void LogIntegration(const report::Integration& in);
 
 // Writes a run of consecutive frames, each as the upscaler produced it and again after the model's edit.
 // The pair is a control: same frames, same run, one variable.

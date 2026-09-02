@@ -55,9 +55,19 @@ class DlssNr_SecondUpscaler_Dx12
      * Feature flags are fixed at creation, so a change to any of them has to
      * come through here rather than being set per frame.
      */
+    /*
+     * `preset` is the render preset to put this feature on, or -1 to leave it unset.
+     *
+     * Unset is not the same as "the driver's default": it means the driver picks one from the ratio,
+     * independently of whatever the first pass is on, and the two can disagree about the frame. The
+     * programming guide attaches real behaviour to that -- exposure input is only supported by Presets
+     * J and K, and Preset L always uses AutoExposure -- and this feature binds an identity exposure
+     * texture with AutoExposure cleared, so a driver choosing L for it would ignore that texture and
+     * auto-expose a picture that has already been normalised.
+     */
     bool EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth, uint32_t renderHeight,
                        uint32_t displayWidth, uint32_t displayHeight, int perfQuality, bool depthInverted,
-                       bool jitteredMV, bool lowResMV);
+                       bool jitteredMV, bool lowResMV, int preset);
 
     /*
      * Run the upscale. `exposure` is the 1x1 identity texture: this feature is
