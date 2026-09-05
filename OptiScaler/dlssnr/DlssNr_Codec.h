@@ -383,6 +383,8 @@ void main(uint3 id : SV_DispatchThreadID)
         float ratioFull = 1.0;
         float beforeLuma = 0.0;
         float afterLuma = 0.0;
+        float3 lowBefore = float3(0.0, 0.0, 0.0);
+        float3 lowAfter = float3(0.0, 0.0, 0.0);
 
         for (int t = 0; t < 5; ++t)
         {
@@ -395,6 +397,12 @@ void main(uint3 id : SV_DispatchThreadID)
 
             beforeLuma += pl * tapWeights[t];
             afterLuma += ml * tapWeights[t];
+
+            // The colours themselves, for the chroma the ratio cannot carry. Low-passed on purpose:
+            // chroma is a low-frequency property and its high-frequency content here is measurement
+            // noise from two differently-sampled images rather than anything the model decided.
+            lowBefore += p * tapWeights[t];
+            lowAfter += m * tapWeights[t];
 
             const float tapRatio = SoftLimit(pl > 1e-5 ? ml / pl : 1.0);
             ratioLow += tapRatio * tapWeights[t];
@@ -529,7 +537,44 @@ void main(uint3 id : SV_DispatchThreadID)
         const float overWhite = saturate((jitLuma / white - 1.0) / 3.0);
         const float keep = 1.0 - overWhite * saturate(gHighlightDamping);
 
-        const float3 result = lerp(jit + (delta * keep).xxx, jit * lerp(1.0, ratio, keep), band);
+        float3 result = lerp(jit + (delta * keep).xxx, jit * lerp(1.0, ratio, keep), band);
+
+        /*
+         * The model's colour, which a brightness ratio cannot carry at all.
+         *
+         * This is most of why multi-pass reads weaker than post-process even when the model runs at
+         * the same or a higher resolution. Post-process composes the model's whole picture -- its
+         * light AND its colour, in its own hue -- onto the frame. The transfer measured a single
+         * luminance ratio and threw the rest away, so everything the model decided about colour was
+         * lost on the way to the enlargement. Tone and detail were being split out of half an edit.
+         *
+         * Carried as a CHANGE in chroma rather than as the model's absolute colour, which is what
+         * makes it safe. The original objection to a per-channel ratio was right: that drags the
+         * jittered frame's hue toward the resolved frame's, so a surface ends up wearing another
+         * frame's colour rather than its own plus the model's opinion. A delta has no such effect --
+         * where the model changed nothing, it adds nothing, exactly.
+         *
+         * Normalised by lightness before it is applied. OkLab's a and b scale with L, and the pair it
+         * was measured on sits at a different brightness from the frame it lands on by construction,
+         * so an absolute delta would over-saturate dark pixels and under-saturate bright ones.
+         *
+         * Gated on the same Colour strength the resolve uses, so the control means one thing in both
+         * placements: at 0 the frame keeps the game's own hue exactly and only its light carries the
+         * model's verdict.
+         */
+        if (gColourStrength > 0.0)
+        {
+            const float3 labBefore = ToOkLab(lowBefore);
+            const float3 labAfter = ToOkLab(lowAfter);
+
+            const float2 chromaBefore = labBefore.yz / max(labBefore.x, 1e-4);
+            const float2 chromaAfter = labAfter.yz / max(labAfter.x, 1e-4);
+            const float2 chromaDelta = chromaAfter - chromaBefore;
+
+            float3 lab = ToOkLab(result);
+            lab.yz += chromaDelta * lab.x * gColourStrength * keep;
+            result = ClampAp1(FromOkLab(lab));
+        }
 
         gTarget[id.xy] = float4(max(result, float3(0.0, 0.0, 0.0)), jittered.a);
         return;

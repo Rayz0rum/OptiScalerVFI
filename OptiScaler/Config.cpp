@@ -338,6 +338,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrToneStrength.set_from_config(readFloat("DlssNr", "ToneStrength"));
             DlssNrDetailStrength.set_from_config(readFloat("DlssNr", "DetailStrength"));
             DlssNrDetailCompensation.set_from_config(readFloat("DlssNr", "DetailCompensation"));
+            DlssNrLowResGain.set_from_config(readFloat("DlssNr", "LowResGain"));
+            DlssNrDetailReference.set_from_config(readFloat("DlssNr", "DetailReference"));
             DlssNrTransferLo.set_from_config(readFloat("DlssNr", "TransferLo"));
             DlssNrTransferHi.set_from_config(readFloat("DlssNr", "TransferHi"));
             DlssNrDebugView.set_from_config(readUInt("DlssNr", "DebugView"));
@@ -1218,6 +1220,10 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->DlssNrDetailStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailCompensation",
                  GetFloatValue(Instance()->DlssNrDetailCompensation.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LowResGain",
+                 GetFloatValue(Instance()->DlssNrLowResGain.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReference",
+                 GetFloatValue(Instance()->DlssNrDetailReference.value_for_config()).c_str());
     ini.SetValue("DlssNr", "TransferLo", GetFloatValue(Instance()->DlssNrTransferLo.value_for_config()).c_str());
     ini.SetValue("DlssNr", "TransferHi", GetFloatValue(Instance()->DlssNrTransferHi.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DebugView", GetIntValue(Instance()->DlssNrDebugView.value_for_config()).c_str());

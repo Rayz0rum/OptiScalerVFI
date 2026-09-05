@@ -169,19 +169,58 @@ DlssNr::report::Latch g_reportLatch;
  */
 float g_enlargementRatio = 1.0f;
 
-// The correction itself, from the two resolutions and how much of it the user wants applied.
-float DetailScale(const Config& cfg, unsigned int appliedWidth, unsigned int modelWidth)
+// The output resolution the model's work is finally seen at, which the module only knows once the
+// caller has said what magnification follows it.
+unsigned int FinalOutputHeight(unsigned int appliedHeight)
 {
+    return (unsigned int) ((float) appliedHeight * g_enlargementRatio + 0.5f);
+}
+
+/*
+ * The gain on the detail band, from two separate effects that both thin the model's work out.
+ *
+ * The first is magnification: detail synthesised at one resolution and then enlarged is spread over
+ * more pixels. That one is a genuine correction -- the same work, covering more area, so scaling it
+ * by the area ratio restores what it was.
+ *
+ * The second is not a correction but a preference, and it is worth being clear about the difference.
+ * The model synthesises at a fixed scale in PIXELS, so a 4K frame receives four times as many added
+ * features as a 1080p one and reads as far more transformed. Nothing is going wrong at 1080p; there
+ * is simply less frame for the model to work on. Amplifying what it did produce makes the effect more
+ * visible at low output resolutions, but it cannot invent the features a larger frame would have had.
+ */
+float DetailScale(const Config& cfg, unsigned int appliedWidth, unsigned int appliedHeight,
+                  unsigned int modelWidth)
+{
+    float gain = 1.0f;
+
     const float compensation = cfg.DlssNrDetailCompensation.value_or_default();
 
-    if (compensation <= 0.0f || modelWidth == 0 || appliedWidth == 0)
-        return 1.0f;
+    if (compensation > 0.0f && modelWidth != 0 && appliedWidth != 0)
+    {
+        const float ratio = ((float) appliedWidth / (float) modelWidth) * g_enlargementRatio;
+        gain *= 1.0f + (ratio - 1.0f) * compensation;
+    }
 
-    const float ratio = ((float) appliedWidth / (float) modelWidth) * g_enlargementRatio;
+    const float lowRes = cfg.DlssNrLowResGain.value_or_default();
+
+    if (lowRes > 0.0f)
+    {
+        const unsigned int outputHeight = FinalOutputHeight(appliedHeight);
+
+        // Inert at and above the reference, so a 4K frame -- where the effect is already at its
+        // strongest -- is left exactly as it was.
+        if (outputHeight != 0)
+        {
+            const float relative =
+                std::clamp(cfg.DlssNrDetailReference.value_or_default() / (float) outputHeight, 1.0f, 2.0f);
+            gain *= 1.0f + (relative - 1.0f) * lowRes;
+        }
+    }
 
     // Bounded: a first-order correction has no business quadrupling anything, and an unbounded gain
     // on a synthesised band is how ringing gets introduced in the name of fixing weakness.
-    return std::clamp(1.0f + (ratio - 1.0f) * compensation, 1.0f, 4.0f);
+    return std::clamp(gain, 1.0f, 4.0f);
 }
 
 // Exposure measurement, and the white point derived from it.
@@ -1122,7 +1161,7 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 
         // Both halves of the magnification are known here: the working scale this pass ran the model
         // at, and whatever the caller enlarges its result by afterwards.
-        resolveParams.detailScale = DetailScale(cfg, width, workWidth);
+        resolveParams.detailScale = DetailScale(cfg, width, height, workWidth);
 
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1301,7 +1340,10 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
 
     // The model ran at this pass's own resolution here, so the only magnification left to correct for
     // is the enlargement the caller is about to perform.
-    params.detailScale = DetailScale(cfg, width, width);
+    params.detailScale = DetailScale(cfg, width, height, width);
+
+    // The same control the resolve uses, so Colour strength means one thing in both placements.
+    params.colourStrength = cfg.DlssNrColourStrength.value_or_default();
 
     /*
      * The temporal average of the ratio field, which is the ghosting fix.

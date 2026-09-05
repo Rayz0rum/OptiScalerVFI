@@ -446,13 +446,20 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nIf the look changes character rather than just weakening, this is why.");
     }
 
-        ImGui::SeparatorText("How much of it lands");
+    ImGui::SeparatorText("How much of it lands");
 
+        /*
+         * This used to be called "Detail strength" too, which collided with the band control below
+         * -- two widgets with one label are one ImGui ID, and the library says so when you hover
+         * either. The names were also simply wrong: this one is the whole edit, and the band
+         * controls are halves of it.
+         */
         float transfer = config->DlssNrTransferStrength.value_or_default();
-        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
+        if (ImGui::SliderFloat("Overall strength", &transfer, 0.0f, 2.0f, "%.2f"))
             config->DlssNrTransferStrength = transfer;
 
-        HelpMarker("How far the frame moves toward the model's picture."
+        HelpMarker("How far the frame moves toward the model's picture, before Tone and Detail"
+                       "\nsplit that movement into halves."
                        "\n\nThe model's answer is not added to the frame -- it is a complete picture of its"
                        "\nown, rescaled so its luminance sits where the original says it should. This"
                        "\nblends between the two, so both ends are real pictures and everything between"
@@ -509,6 +516,23 @@ void RenderMenu(Config* config, float menuResScale)
                        "\napparent strength stays put. Tone is left alone: it is low-frequency and"
                        "\nsurvives magnification largely intact, so lifting it too would overshoot."
                        "\n\nA first-order correction, not a calibrated curve. 0 is the old behaviour.");
+
+        float lowRes = config->DlssNrLowResGain.value_or_default();
+        if (ImGui::SliderFloat("Low-resolution gain", &lowRes, 0.0f, 1.0f, "%.2f"))
+            config->DlssNrLowResGain = lowRes;
+
+        HelpMarker("Lifts the detail band at output resolutions below 4K."
+                       "\n\nThe model synthesises at a fixed scale in PIXELS, so a 4K frame receives"
+                       "\nroughly four times as many added features as a 1080p one and reads as far"
+                       "\nmore transformed. Nothing is going wrong at 1080p -- there is simply less"
+                       "\nframe for the model to work on, and the fine texture detail it reads to"
+                       "\nidentify materials is scarcer there too."
+                       "\n\nThis is a preference, not a correction, and the distinction matters: it"
+                       "\namplifies what the model DID produce so the effect is more visible. It"
+                       "\ncannot invent the features a larger frame would have had, and it will not"
+                       "\nmake 1080p look like 4K."
+                       "\n\nInert at and above 4K, so the resolution where the pass is already at its"
+                       "\nstrongest is untouched. 0 disables it.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
         if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))

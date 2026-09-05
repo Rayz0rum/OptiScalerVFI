@@ -391,6 +391,25 @@ class Config
     // proportion to the linear scale factor, which is the right shape but not a calibrated curve.
     CustomOptional<float> DlssNrDetailCompensation { 1.0f };
 
+    // How much to lift the detail band at output resolutions below the reference.
+    //
+    // Distinct from DetailCompensation, and honest about being a preference rather than a correction.
+    // The model synthesises at a fixed scale in PIXELS, so a 4K frame receives roughly four times as
+    // many added features as a 1080p one and reads as far more transformed. Nothing is going wrong at
+    // 1080p -- there is simply less frame for the model to work on, and the high-frequency texture
+    // detail it reads to identify materials is scarcer there too.
+    //
+    // This amplifies what the model did produce so the effect is more visible at low output
+    // resolutions. It cannot invent the features a larger frame would have had, and it will not make
+    // 1080p look like 4K. Inert at and above the reference, so 4K is untouched.
+    //
+    // 0 disables it.
+    CustomOptional<float> DlssNrLowResGain { 1.0f };
+
+    // The output height at which the model's effect is taken as the benchmark, for LowResGain. 2160
+    // because that is where the pass has the most pixels to work with and reads at its strongest.
+    CustomOptional<float> DlssNrDetailReference { 2160.0f };
+
 
     // The luminance band, as a fraction of the measured white point, across which the transfer crosses
     // from an additive edit to a multiplicative one.
