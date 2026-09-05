@@ -27,9 +27,9 @@ namespace DlssNr
 namespace report
 {
 
-// A number that is genuinely not applicable, rather than zero. Preset especially: 0 is "default",
-// which is a real preset and a different statement from "this pass has no preset".
-constexpr int kNotApplicable = -1;
+// Presets are reported as a flag plus a value rather than a sentinel. There is no spare number to
+// mean "none": 0 is Default, which is a real preset, and real values have been seen with the high bit
+// set, so any negative sentinel collides with something valid the moment it is cast.
 
 struct Pass
 {
@@ -41,7 +41,8 @@ struct Pass
     unsigned int outW = 0;
     unsigned int outH = 0;
 
-    int preset = kNotApplicable;
+    bool hasPreset = false;
+    unsigned int preset = 0;
 
     // What the feature was CREATED with, not what the frame happens to be. The two disagree on
     // purpose in the reordered arrangements, and that disagreement is the thing worth logging.
@@ -150,7 +151,7 @@ inline std::string Format(const Integration& in, bool withPhases = true)
         s += "x";
         detail::appendUInt(s, p.outH);
 
-        if (p.preset != kNotApplicable)
+        if (p.hasPreset)
         {
             s += " preset=";
             s += std::to_string(p.preset);

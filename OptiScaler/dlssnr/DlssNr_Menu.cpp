@@ -250,23 +250,6 @@ void RenderMenu(Config* config, float menuResScale)
                                "\n\nThe manual signs remain for an engine that disagrees with the guide."
                                "\nOff disables the alignment entirely.");
 
-                    float blur = config->DlssNrTransferBlur.value_or_default();
-
-                    if (ImGui::SliderFloat("Transfer band", &blur, 0.0f, 4.0f, "%.2f px"))
-                        config->DlssNrTransferBlur = blur;
-
-                    HelpMarker("How much of the edit's fine detail survives the transfer, as a low-pass"
-                               "\nradius in pixels. 0 transfers it unfiltered, which is what earlier"
-                               "\nbuilds did."
-                               "\n\nA brightness ratio measured on one image and applied to another that"
-                               "\nsampled the scene half a pixel elsewhere carries tone faithfully and"
-                               "\nstructure not at all. A misplaced structure band is worse than a"
-                               "\nmissing one: the enlargement averages it away across offsets and takes"
-                               "\nthe model's work with it."
-                               "\n\nRaising this trades the structure band for a clean tone transfer."
-                               "\nWorth trying first under Ray Reconstruction, where that same band is"
-                               "\nthe part that fights the denoise.");
-
                     float damping = config->DlssNrHighlightDamping.value_or_default();
 
                     if (ImGui::SliderFloat("Highlight damping", &damping, 0.0f, 1.0f, "%.2f"))
@@ -415,6 +398,53 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nmodel asked for -- use it to see what it is doing, then come back down. This"
                        "\nis the control to push if you want more effect: Intensity belongs to the model"
                        "\nand it decides what to do with it.");
+
+        float tone = config->DlssNrToneStrength.value_or_default();
+        if (ImGui::SliderFloat("Tone strength", &tone, 0.0f, 1.0f, "%.2f"))
+            config->DlssNrToneStrength = tone;
+
+        HelpMarker("How much of the model's LOW-frequency verdict reaches the frame: light"
+                       "\ninteraction, colour, how a surface should sit overall."
+                       "\n\nSet this to 0 with Detail strength at 1 to keep the synthesised structure"
+                       "\nwhile restoring the game's own tone and colour. That is a coherent"
+                       "\npreference rather than a compromise, and Detail strength alone could not"
+                       "\nexpress it -- it turned both halves down together."
+                       "\n\nThe split is exact: at 1 and 1 the two bands recombine into precisely the"
+                       "\nedit that went in, so these cost nothing until you move one.");
+
+        float detail = config->DlssNrDetailStrength.value_or_default();
+        if (ImGui::SliderFloat("Detail strength", &detail, 0.0f, 2.0f, "%.2f"))
+            config->DlssNrDetailStrength = detail;
+
+        HelpMarker("How much of the model's HIGH-frequency work reaches the frame: the material and"
+                       "\nshading structure it synthesises."
+                       "\n\nAllowed past 1 because exaggerating an edit is the honest way to see"
+                       "\nwhether there is one.");
+
+        float band = config->DlssNrDetailBand.value_or_default();
+        if (ImGui::SliderFloat("Band radius", &band, 0.5f, 6.0f, "%.2f px"))
+            config->DlssNrDetailBand = band;
+
+        HelpMarker("Where tone stops and detail begins, as a radius in pixels."
+                       "\n\nOnly matters once Tone and Detail strength differ: at 1 and 1 the bands"
+                       "\nrecombine exactly whatever this is."
+                       "\n\nSmaller keeps more of the frame in the tone band; larger moves more of it"
+                       "\ninto detail.");
+
+        float compensation = config->DlssNrDetailCompensation.value_or_default();
+        if (ImGui::SliderFloat("Hold strength across resolution", &compensation, 0.0f, 1.0f, "%.2f"))
+            config->DlssNrDetailCompensation = compensation;
+
+        HelpMarker("Corrects for the model reading weaker the more upscaling sits behind it."
+                       "\n\nDetail is synthesised at whatever resolution the model ran at, and anything"
+                       "\nthat magnifies its work afterwards -- a reduced working scale enlarged back,"
+                       "\nor a Super Resolution pass taking render resolution to display -- spreads"
+                       "\nthat detail over more pixels and thins it out. Nothing about the model"
+                       "\nchanged; only how many pixels its work ended up covering."
+                       "\n\n1 scales the detail band by the ratio of those two resolutions so the"
+                       "\napparent strength stays put. Tone is left alone: it is low-frequency and"
+                       "\nsurvives magnification largely intact, so lifting it too would overshoot."
+                       "\n\nA first-order correction, not a calibrated curve. 0 is the old behaviour.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
         if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 1.0f, "%.2f"))

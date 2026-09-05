@@ -410,6 +410,8 @@ bool IFeature_Dx11wDx12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NG
         // work in DirectX 11 games, whatever upscaler carried it here.
 #if OPTI_DLSSNR
         if (dx12EvalResult && Config::Instance()->DlssNrEnabled.value_or_default())
+            // The bridge only ever runs the pass post-process, on the finished frame.
+            DlssNr::SetEnlargementRatio(1.0f);
             DlssNr::EvaluateAfterUpscale(cmdList, InParameters);
 #endif
 

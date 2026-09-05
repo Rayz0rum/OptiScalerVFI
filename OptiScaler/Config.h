@@ -337,16 +337,40 @@ class Config
     // than 0, the opposite sign is the thing to try.
     CustomOptional<int> DlssNrMultiPassAlign { 2 };
 
-    // How much of the edit's high-frequency band survives the transfer, as a low-pass radius in pixels
-    // applied to the ratio field. 0 transfers it unfiltered, which is the previous behaviour exactly.
+    // The radius, in pixels, at which the model's edit is separated into tone and detail.
     //
-    // A brightness ratio measured on one image and applied to another that sampled the scene half a
-    // pixel elsewhere can carry tone faithfully and structure not at all -- and a misplaced structure
-    // band is worse than a missing one, because the enlargement averages it across jitter offsets and
-    // cancels the model's work rather than merely softening it. Raising this trades the structure band
-    // for a clean tone transfer, which is the trade worth making under Ray Reconstruction, where that
-    // same band is what fights the denoise.
-    CustomOptional<float> DlssNrTransferBlur { 0.0f };
+    // Only meaningful alongside the two strengths below. At 1 and 1 the bands recombine into exactly
+    // the edit that went in, whatever this is set to, so it costs nothing until one of them moves.
+    CustomOptional<float> DlssNrDetailBand { 2.0f };
+
+    // How much of each band reaches the frame.
+    //
+    // Tone is the low-frequency verdict: light interaction, colour, how a surface should sit overall.
+    // Detail is the high-frequency remainder -- the material and shading structure the model
+    // synthesises. They are different claims about the picture, and wanting the game's own tone back
+    // while keeping the synthesised structure is a coherent preference rather than a compromise.
+    // Strength alone could not express it, because it turned both down together.
+    //
+    // ToneStrength 0 with DetailStrength 1 is "restore the original tone and colour, keep the neural
+    // detail". Both at 1 is the whole edit, exactly as before these existed.
+    CustomOptional<float> DlssNrToneStrength { 1.0f };
+    CustomOptional<float> DlssNrDetailStrength { 1.0f };
+
+    // How much of the model's apparent weakening under enlargement to correct for.
+    //
+    // The model's detail is synthesised at whatever resolution it ran at, and anything that magnifies
+    // its work afterwards -- a reduced working scale enlarged back, or a Super Resolution pass taking
+    // render resolution to display -- spreads that detail over more pixels and attenuates it. Which is
+    // why the pass looks progressively weaker the more upscaling sits after it, at identical settings.
+    //
+    // This scales the DETAIL band alone by the ratio of the two resolutions, leaving tone untouched --
+    // tone is low-frequency and survives magnification largely intact, so boosting it as well would
+    // overshoot. 1 holds the apparent strength constant; 0 is the old behaviour.
+    //
+    // A first-order correction, not a measurement: it assumes the structure band attenuates in
+    // proportion to the linear scale factor, which is the right shape but not a calibrated curve.
+    CustomOptional<float> DlssNrDetailCompensation { 1.0f };
+
 
     // The luminance band, as a fraction of the measured white point, across which the transfer crosses
     // from an additive edit to a multiplicative one.

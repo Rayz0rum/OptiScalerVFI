@@ -131,19 +131,31 @@ enum class JitterSite : unsigned int
 };
 
 /*
- * The DLSS render preset in force for a quality mode, out of the parameter block, or
- * report::kNotApplicable when the game named none.
+ * True when the game named a preset for that quality mode, with the value in outPreset.
  *
- * Presets are set per performance mode, so there is no generic way to ask which one a feature is on.
- * The answer matters here because of what the guide hangs off it: exposure input is only supported by
- * Presets J and K, and Preset L always uses AutoExposure -- so two Super Resolution passes on
- * different presets disagree about the frame's exposure, invisibly.
+ * A bool and an out-parameter rather than a sentinel, because there is no integer left over to mean
+ * "none". Presets arrive as unsigned values and real ones have been seen with the high bit set -- a
+ * log from Mortal Shell 2 shows 0x8000000B -- so returning them as a signed int made a perfectly
+ * valid preset test as negative, and a "did the game set one" check written as >= 0 then silently
+ * answered no. The enlargement was left on the driver's own choice for exactly the titles the
+ * matching was meant to help.
  */
-int PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality);
+bool PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality, unsigned int& outPreset);
 
 // The parameter name a preset for that quality mode lives under, or nullptr for a mode that has none.
 // Presets are per performance mode, so writing one means picking the right key first.
 const char* PresetKeyForQuality(int perfQuality);
+
+/*
+ * How much the model's work will be magnified after the pass runs, stated by the pipeline each frame.
+ *
+ * The model synthesises detail at whatever resolution it ran at, and anything that enlarges its
+ * output afterwards spreads that detail over more pixels and attenuates it -- which is why the pass
+ * reads progressively weaker the more upscaling sits behind it, at identical settings. The module can
+ * see its own working scale but not what the caller does next, so the caller says. 1.0 means nothing
+ * follows, which is the post-process case and the default.
+ */
+void SetEnlargementRatio(float ratio);
 
 // Records an offset a pass was actually given. Cheap enough for the per-frame path.
 void ObserveJitter(JitterSite site, float x, float y);

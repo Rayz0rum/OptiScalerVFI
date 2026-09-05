@@ -76,9 +76,14 @@ cbuffer Params : register(b0)
     float gColourGuard;
     // The floor of the transferred ratio, as gMaxRatio is its ceiling. See the transfer.
     float gMinRatio;
-    // Radius in pixels of the low-pass applied to the edit before it is transferred. 0 disables and
-    // the taps collapse onto the centre, which is exactly the unfiltered behaviour.
-    float gTransferBlur;
+    // Radius in pixels at which the model's edit is separated into tone and detail. See SplitEdit.
+    float gDetailBand;
+    // How much of each band survives. 1 and 1 reproduce the whole edit exactly, at any radius.
+    float gToneStrength;
+    float gDetailStrength;
+    // Extra gain on the detail band, to hold the model's apparent strength constant across the
+    // resolution it ran at and the enlargement applied afterwards. 1 leaves it alone.
+    float gDetailScale;
     // The luminance band across which the transfer crosses from an additive edit to a multiplicative
     // one, as a fraction of the white point. Below gTransferLo it is entirely additive.
     float gTransferLo;
@@ -194,6 +199,13 @@ SamplerState        gLinear   : register(s0);  // so the edit can be read at a d
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
 
+// The neighbourhood the tone/detail split is measured over. Tap 0 is the centre, so it doubles as
+// the unfiltered value; the four corners at weight 1/8 make a tent rather than a box, which at these
+// radii is indistinguishable in the result and cheaper to reason about at the edges.
+static const float2 tapOffsets[5] = { float2(0.0, 0.0), float2(-1.0, -1.0), float2(1.0, -1.0),
+                                      float2(-1.0, 1.0), float2(1.0, 1.0) };
+static const float tapWeights[5] = { 0.5, 0.125, 0.125, 0.125, 0.125 };
+
 // sRGB rather than a plain 2.2 power: it is what an SDR game buffer actually carries, and the model was
 // trained on those.
 float3 LinearToSrgb(float3 v)
@@ -230,6 +242,34 @@ float SoftLimit(float r)
 
     const float floorroom = 1.0 - lo;
     return floorroom > 1e-6 ? 1.0 - floorroom * (1.0 - exp(-(1.0 - r) / floorroom)) : 1.0;
+}
+
+/*
+ * Separates the model's edit into what it did to tone and what it did to detail, and reweights them.
+ *
+ * The two halves are different claims about the picture and it is entirely reasonable to want one
+ * without the other. Tone is the low-frequency band -- light interaction, colour, the overall
+ * verdict on how a surface should sit; detail is the high-frequency remainder, which is the material
+ * and shading structure the model synthesises. Wanting the game's own tone back while keeping the
+ * synthesised structure is not a compromise, it is a coherent preference, and until now there was no
+ * way to express it: strength turned both down together.
+ *
+ * The split is done in log space because the edit is a ratio, and a ratio's natural decomposition is
+ * a sum of logarithms rather than a sum of differences. That also makes it exact: at tone = 1 and
+ * detail = 1 the two bands recombine into precisely the edit that went in, whatever the radius, so
+ * the controls are free until somebody moves them.
+ *
+ * `scale` is separate from `detail` on purpose. It is not a preference but a correction -- see the
+ * host, which derives it from the resolution the model ran at against the resolution its work is
+ * finally displayed at.
+ */
+float SplitEdit(float full, float low, float tone, float detail, float scale)
+{
+    const float logFull = log2(max(full, 1e-6));
+    const float logLow = log2(max(low, 1e-6));
+    const float logHigh = logFull - logLow;
+
+    return exp2(logLow * tone + logHigh * detail * scale);
 }
 
 // The edit at an arbitrary position, exactly as the resolve computes its own.
@@ -318,10 +358,6 @@ void main(uint3 id : SV_DispatchThreadID)
          * Five taps in a tent, not a box: at the radii that are useful here the difference is
          * invisible and the cost is not.
          */
-        const float2 tapOffsets[5] = { float2(0.0, 0.0), float2(-1.0, -1.0), float2(1.0, -1.0),
-                                       float2(-1.0, 1.0), float2(1.0, 1.0) };
-        const float tapWeights[5] = { 0.5, 0.125, 0.125, 0.125, 0.125 };
-
         /*
          * Each tap's own ratio, averaged -- not the ratio of the averages.
          *
@@ -338,13 +374,14 @@ void main(uint3 id : SV_DispatchThreadID)
          * texel, and each one is bounded before it is averaged, so a single near-zero denominator can
          * no longer dominate the result for the whole neighbourhood.
          */
-        float ratio = 0.0;
+        float ratioLow = 0.0;
+        float ratioFull = 1.0;
         float beforeLuma = 0.0;
         float afterLuma = 0.0;
 
         for (int t = 0; t < 5; ++t)
         {
-            const float2 uvt = alignUv + tapOffsets[t] * gTransferBlur * texel;
+            const float2 uvt = alignUv + tapOffsets[t] * gDetailBand * texel;
             const float3 p = Sanitize(gSource.SampleLevel(gLinear, uvt, 0).rgb);
             const float3 m = Sanitize(gModel.SampleLevel(gLinear, uvt, 0).rgb);
 
@@ -354,8 +391,17 @@ void main(uint3 id : SV_DispatchThreadID)
             beforeLuma += pl * tapWeights[t];
             afterLuma += ml * tapWeights[t];
 
-            ratio += SoftLimit(pl > 1e-5 ? ml / pl : 1.0) * tapWeights[t];
+            const float tapRatio = SoftLimit(pl > 1e-5 ? ml / pl : 1.0);
+            ratioLow += tapRatio * tapWeights[t];
+
+            // Tap 0 is the centre, so it is the unfiltered edit at this pixel.
+            if (t == 0)
+                ratioFull = tapRatio;
         }
+
+        // Tone and detail weighted separately, and exactly recombined when both are 1.
+        float ratio = SplitEdit(ratioFull, ratioLow, gToneStrength, gDetailStrength, gDetailScale);
+        ratio = SoftLimit(ratio);
 
         const float4 jittered = gOriginal.Load(int3(id.xy, 0));
         const float3 jit = Sanitize(jittered.rgb);
@@ -622,6 +668,47 @@ void main(uint3 id : SV_DispatchThreadID)
 
     float3 result = lerp(original * lumaRatio, upgraded, colourStrength);
 
+    /*
+     * The same tone/detail separation the transfer does, applied here as a correction.
+     *
+     * The composition above has already decided the whole answer, so rather than rebuilding it per
+     * band -- which would mean running the OkLab work five times -- the split is measured on the one
+     * quantity that drives it, the model's luminance against the proxy's, and the result is scaled by
+     * however much the reweighting would have changed that driver.
+     *
+     * Exact at tone = 1, detail = 1, scale = 1: the adjustment is then 2^0, and the frame is bit for
+     * bit what it was before these controls existed.
+     */
+    if (gToneStrength != 1.0 || gDetailStrength != 1.0 || gDetailScale != 1.0)
+    {
+        float lowProxy = 0.0;
+        float lowModel = 0.0;
+
+        for (int rt = 0; rt < 5; ++rt)
+        {
+            const float2 uvr = uv + tapOffsets[rt] * gDetailBand / float2(gWidth, gHeight);
+            float3 p = Sanitize(gSource.SampleLevel(gLinear, uvr, 0).rgb);
+            float3 m = Sanitize(gModel.SampleLevel(gLinear, uvr, 0).rgb);
+
+            if (gPassthrough == 0)
+            {
+                p = SrgbToLinear(p);
+                m = SrgbToLinear(m);
+            }
+
+            lowProxy += dot(p, kLuma) * tapWeights[rt];
+            lowModel += dot(m, kLuma) * tapWeights[rt];
+        }
+
+        const float fullEdit = proxyLuma > 1e-5 ? modelLuma / proxyLuma : 1.0;
+        const float lowEdit = lowProxy > 1e-5 ? lowModel / lowProxy : 1.0;
+
+        const float wanted = SplitEdit(fullEdit, lowEdit, gToneStrength, gDetailStrength, gDetailScale);
+        const float had = SplitEdit(fullEdit, lowEdit, 1.0, 1.0, 1.0);
+
+        result *= clamp(had > 1e-5 ? wanted / had : 1.0, min(gMinRatio, 1.0), max(gMaxRatio, 1.0));
+    }
+
     // Back out of the normalised space the composition worked in.
     result *= normScale;
 
@@ -668,9 +755,18 @@ struct Params
     // is where a near-black denominator used to send it.
     float minRatio;
 
-    // Radius in pixels of the low-pass on the edit field, before it is carried onto the jittered
-    // frame. Zero collapses the taps onto the centre and is bit-for-bit the unfiltered path.
-    float transferBlur;
+    // Radius in pixels at which the model's edit is separated into tone and detail.
+    float detailBand;
+
+    // How much of each band survives. Tone is the low-frequency verdict -- light interaction and
+    // colour; detail is the high-frequency remainder, the material and shading structure. At 1 and 1
+    // they recombine into exactly the edit that went in, whatever the radius.
+    float toneStrength;
+    float detailStrength;
+
+    // Extra gain on the detail band, correcting for the resolution the model ran at against the
+    // resolution its work is finally displayed at. Not a preference; see the host.
+    float detailScale;
 
     // Luminance band, as a fraction of the white point, across which the transfer crosses from an
     // additive edit to a multiplicative one.

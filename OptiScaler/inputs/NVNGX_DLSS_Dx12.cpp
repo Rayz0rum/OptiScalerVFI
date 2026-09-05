@@ -1160,7 +1160,12 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
             // return, so filtering on the parameter block alone would run the model twice a frame.
 #if OPTI_DLSSNR
             if (result == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration)
+            {
+                // Native DLSS passing straight through: the frame is at its final size and nothing
+                // magnifies the model's work afterwards, so the detail band needs no compensation.
+                DlssNr::SetEnlargementRatio(1.0f);
                 DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+            }
 #endif
 
             return result;
@@ -1207,7 +1212,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         auto* current = State::Instance().currentFeature;
 
         if (current == nullptr || current->NRBuiltMode() == DlssNr::Mode::PostProcess)
+        {
+            // Post-process only, by the branch above: the frame is finished and at its final size.
+            DlssNr::SetEnlargementRatio(1.0f);
             DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+        }
     }
 #endif
 

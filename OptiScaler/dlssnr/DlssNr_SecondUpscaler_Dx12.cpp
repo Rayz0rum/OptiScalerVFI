@@ -21,7 +21,20 @@ DlssNr_SecondUpscaler_Dx12::DlssNr_SecondUpscaler_Dx12(std::string name, ID3D12D
         GpuTime = std::make_unique<GpuTime_Dx12>(device);
 }
 
-DlssNr_SecondUpscaler_Dx12::~DlssNr_SecondUpscaler_Dx12() { Release(); }
+DlssNr_SecondUpscaler_Dx12::~DlssNr_SecondUpscaler_Dx12()
+{
+    Release();
+
+    // Nothing is in flight once this object is going away, and nothing will tick the retire list
+    // again, so whatever Release parked is freed here rather than leaked.
+    for (auto& retired : _retired)
+    {
+        if (retired.resource != nullptr)
+            retired.resource->Release();
+    }
+
+    _retired.clear();
+}
 
 bool DlssNr_SecondUpscaler_Dx12::CreateInputBuffer(ID3D12Resource* reference, uint32_t renderWidth, uint32_t renderHeight)
 {
@@ -124,16 +137,55 @@ void DlssNr_SecondUpscaler_Dx12::SetInputBufferState(ID3D12GraphicsCommandList* 
     _inputBufferState = state;
 }
 
+void DlssNr_SecondUpscaler_Dx12::Park(ID3D12Resource*& resource)
+{
+    if (resource == nullptr)
+        return;
+
+    _retired.push_back({ resource, _frames + kParkFrames });
+    resource = nullptr;
+}
+
+void DlssNr_SecondUpscaler_Dx12::TickRetired()
+{
+    for (auto it = _retired.begin(); it != _retired.end();)
+    {
+        if (_frames < it->freeAtFrame)
+        {
+            ++it;
+            continue;
+        }
+
+        if (it->resource != nullptr)
+            it->resource->Release();
+
+        it = _retired.erase(it);
+    }
+}
+
+void DlssNr_SecondUpscaler_Dx12::BeginFrame()
+{
+    ++_frames;
+    TickRetired();
+}
+
 void DlssNr_SecondUpscaler_Dx12::Release()
 {
+    /*
+     * Parked, not freed.
+     *
+     * These used to be released the instant a rebuild was decided on, which is a use-after-free with
+     * a latch on it: frames already submitted still name these resources and D3D12 keeps no reference
+     * from the command lists that do. It went unnoticed while the only thing that could trigger a
+     * rebuild mid-session was a resolution change, which arrives between frames -- and then became a
+     * reliable crash the moment a menu toggle could trigger one, because the enlargement's own source
+     * texture was among the things being freed.
+     *
+     * The destructor takes the other path and frees outright: nothing is in flight once the device is
+     * going away, and there will be no further frames to retire anything on.
+     */
     for (auto** res : { &_inputBuffer, &_editBefore, &_editResult, &_exposure, &_exposureUpload })
-    {
-        if (*res != nullptr)
-        {
-            (*res)->Release();
-            *res = nullptr;
-        }
-    }
+        Park(*res);
 
     _exposureUploaded = false;
 
@@ -163,7 +215,8 @@ void DlssNr_SecondUpscaler_Dx12::Release()
 bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth,
                                            uint32_t renderHeight, uint32_t displayWidth, uint32_t displayHeight,
                                            int perfQuality, bool depthInverted, bool jitteredMV,
-                                           bool lowResMV, int preset, bool isHdr, bool autoExposure)
+                                           bool lowResMV, bool hasPreset, unsigned int preset, bool isHdr,
+                                           bool autoExposure)
 {
     if (_createFailed || cmdList == nullptr || renderWidth == 0 || displayWidth == 0)
         return false;
@@ -262,10 +315,10 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
      * this feature deliberately clears AutoExposure and binds an identity exposure texture, so a
      * driver landing it on L would ignore that texture and auto-expose an already-normalised picture.
      */
-    if (preset >= 0)
+    if (hasPreset)
     {
         if (const char* presetKey = DlssNr::PresetKeyForQuality(perfQuality); presetKey != nullptr)
-            _params->Set(presetKey, (unsigned int) preset);
+            _params->Set(presetKey, preset);
     }
 
     NVSDK_NGX_Result result =
@@ -297,8 +350,8 @@ bool DlssNr_SecondUpscaler_Dx12::EnsureCreated(ID3D12GraphicsCommandList* cmdLis
              autoExposure ? "automatic" : "supplied",
              lowResMV ? "render resolution" : "display resolution", depthInverted ? "inverted" : "normal",
              jitteredMV ? "jittered" : "not jittered",
-             preset >= 0 ? std::to_string(preset) : std::string("left to the driver -- it may not match "
-                                                                "the first pass"));
+             hasPreset ? std::to_string(preset) : std::string("left to the driver -- it may not match "
+                                                              "the first pass"));
 
     return true;
 }

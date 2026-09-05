@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 /*
  * A second DLSS Super Resolution feature, owned by OptiScaler.
@@ -67,7 +68,8 @@ class DlssNr_SecondUpscaler_Dx12
      */
     bool EnsureCreated(ID3D12GraphicsCommandList* cmdList, uint32_t renderWidth, uint32_t renderHeight,
                        uint32_t displayWidth, uint32_t displayHeight, int perfQuality, bool depthInverted,
-                       bool jitteredMV, bool lowResMV, int preset, bool isHdr, bool autoExposure);
+                       bool jitteredMV, bool lowResMV, bool hasPreset, unsigned int preset, bool isHdr,
+                       bool autoExposure);
 
     /*
      * Run the upscale. `exposure` is the 1x1 identity texture: this feature is
@@ -86,6 +88,11 @@ class DlssNr_SecondUpscaler_Dx12
      * so format and heap match.
      */
     bool CreateInputBuffer(ID3D12Resource* reference, uint32_t renderWidth, uint32_t renderHeight);
+
+    // Advances the parking clock and frees whatever has aged out. Once per frame, before anything
+    // else touches this object.
+    void BeginFrame();
+
 
     /*
      * The pair the edit transfer needs: a copy of what the model was shown, and somewhere to put the
@@ -148,6 +155,30 @@ class DlssNr_SecondUpscaler_Dx12
     // needed at all: with AutoExposure set, DLSS derives one and a supplied texture is redundant.
     bool _isHdr = false;
     bool _autoExposure = false;
+
+    /*
+     * Resources whose feature has been rebuilt, held until the GPU is certainly past them.
+     *
+     * Rebuilding used to free these outright, which is a use-after-free waiting for a reason to
+     * happen: frames already submitted still name them, and D3D12 does no reference counting on the
+     * command lists that do. Thirty-two frames is the same margin the rest of the module parks for.
+     */
+    struct Retired
+    {
+        ID3D12Resource* resource = nullptr;
+        unsigned long long freeAtFrame = 0;
+    };
+
+    std::vector<Retired> _retired;
+    unsigned long long _frames = 0;
+
+    static constexpr unsigned long long kParkFrames = 32;
+
+    // Hands a resource to the retire list and clears the pointer.
+    void Park(ID3D12Resource*& resource);
+
+    // Frees anything whose parking has expired. Called once a frame.
+    void TickRetired();
 
     bool _createFailed = false;
     bool _needsReset = true;

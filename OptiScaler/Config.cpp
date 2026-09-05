@@ -333,7 +333,10 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrColourGuard.set_from_config(readFloat("DlssNr", "ColourGuard"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
             DlssNrMinRatio.set_from_config(readFloat("DlssNr", "MinRatio"));
-            DlssNrTransferBlur.set_from_config(readFloat("DlssNr", "TransferBlur"));
+            DlssNrDetailBand.set_from_config(readFloat("DlssNr", "DetailBand"));
+            DlssNrToneStrength.set_from_config(readFloat("DlssNr", "ToneStrength"));
+            DlssNrDetailStrength.set_from_config(readFloat("DlssNr", "DetailStrength"));
+            DlssNrDetailCompensation.set_from_config(readFloat("DlssNr", "DetailCompensation"));
             DlssNrTransferLo.set_from_config(readFloat("DlssNr", "TransferLo"));
             DlssNrTransferHi.set_from_config(readFloat("DlssNr", "TransferHi"));
             DlssNrDebugView.set_from_config(readUInt("DlssNr", "DebugView"));
@@ -1205,8 +1208,13 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "ColourGuard", GetFloatValue(Instance()->DlssNrColourGuard.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MaxRatio", GetFloatValue(Instance()->DlssNrMaxRatio.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MinRatio", GetFloatValue(Instance()->DlssNrMinRatio.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "TransferBlur",
-                 GetFloatValue(Instance()->DlssNrTransferBlur.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailBand", GetFloatValue(Instance()->DlssNrDetailBand.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ToneStrength",
+                 GetFloatValue(Instance()->DlssNrToneStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailStrength",
+                 GetFloatValue(Instance()->DlssNrDetailStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailCompensation",
+                 GetFloatValue(Instance()->DlssNrDetailCompensation.value_for_config()).c_str());
     ini.SetValue("DlssNr", "TransferLo", GetFloatValue(Instance()->DlssNrTransferLo.value_for_config()).c_str());
     ini.SetValue("DlssNr", "TransferHi", GetFloatValue(Instance()->DlssNrTransferHi.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DebugView", GetIntValue(Instance()->DlssNrDebugView.value_for_config()).c_str());

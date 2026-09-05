@@ -192,9 +192,63 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             if (MultiPassScaler == nullptr)
                 MultiPassScaler = std::make_unique<OS_Dx12>("DLSS-NR Enlarge", Device, true);
         }
-        else if (SecondUpscaler == nullptr)
+        else
         {
-            SecondUpscaler = std::make_unique<DlssNr_SecondUpscaler_Dx12>("DLSS-NR Second Upscaler", Device);
+            if (SecondUpscaler == nullptr)
+                SecondUpscaler = std::make_unique<DlssNr_SecondUpscaler_Dx12>("DLSS-NR Second Upscaler", Device);
+
+            SecondUpscaler->BeginFrame();
+
+            /*
+             * Built here, before the pipeline records a single command.
+             *
+             * This used to happen inside the dispatch, between the edit transfer writing the
+             * enlargement's source texture and the enlargement reading it -- so any change that
+             * forced a rebuild freed that texture in the gap and handed the freed pointer straight to
+             * NGX. Toggling the colour-space match made it reachable from the menu, but a quality
+             * preset change would have done the same thing, silently, all along.
+             *
+             * Everything it depends on is already known at this point, and nothing this frame has
+             * been recorded yet, so a rebuild here costs one reset frame and disturbs nothing.
+             */
+            const bool matchColour = Config::Instance()->DlssNrMatchGameColourSpace.value_or_default();
+
+            /*
+             * The enlargement is created for the colour space it is actually handed.
+             *
+             * What reaches it is the game's own frame: Neural Rendering returns the picture in the
+             * space it received it, and the edit transfer applies a near-unity brightness ratio to
+             * the game's jittered buffer directly. Declaring that display-referred -- which is what
+             * clearing IsHDR does -- selects the guide's LDR path, which quantises to 8 bits and
+             * expects a perceptually linear encoding, and handing that linear colour is the guide's
+             * own account of banding and colour shifting.
+             */
+            const bool passIsHdr = matchColour && NRGameIsHdr();
+            const bool passAutoExposure = matchColour && AutoExposure();
+
+            /*
+             * The enlargement is put on the first pass's preset by default. Two Super Resolution
+             * features in one frame on independently chosen presets can disagree about the exposure
+             * of the picture they are passing between them -- the guide supports exposure input on
+             * Presets J and K only, and Preset L always uses AutoExposure, which this pass may have
+             * cleared.
+             */
+            unsigned int matchedPreset = 0;
+            const bool hasPreset = Config::Instance()->DlssNrMatchPreset.value_or_default() &&
+                                   DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue(),
+                                                            matchedPreset);
+
+            if (!SecondUpscaler->EnsureCreated(InCommandList, RenderWidth(), RenderHeight(), DisplayWidth(),
+                                               DisplayHeight(), (int) PerfQualityValue(), DepthInverted(),
+                                               JitteredMV(), LowResMV(), hasPreset, matchedPreset, passIsHdr,
+                                               passAutoExposure))
+            {
+                // Without the enlargement the frame would be a render-resolution image in the corner
+                // of a display-resolution buffer, so the mode stands down rather than showing that.
+                Config::Instance()->DlssNrMode.set_volatile_value((uint32_t) DlssNr::Mode::PostProcess);
+                State::Instance().changeBackend[Handle()->Id] = true;
+                return true;
+            }
         }
 
         pipeline.push_back(
@@ -290,6 +344,18 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
 
 
+                  /*
+                   * The magnification still to come, so the model's detail can be compensated for it.
+                   *
+                   * Detail synthesised at render resolution is spread over the display resolution by
+                   * the pass after this one, which is why the model reads weaker here than it does in
+                   * post-process at the same settings -- nothing about the model changed, only how
+                   * many pixels its work ended up covering.
+                   */
+                  DlssNr::SetEnlargementRatio(spatialEnlarge || RenderWidth() == 0
+                                                  ? 1.0f
+                                                  : (float) DisplayWidth() / (float) RenderWidth());
+
                   if (transferEdit)
                       CopyRenderRect(InCommandList, input, SecondUpscaler->EditBefore());
 
@@ -356,54 +422,21 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
 
                   /*
-                   * The enlargement is put on the first pass's preset by default.
-                   *
-                   * Two Super Resolution features in one frame on independently chosen presets can
-                   * disagree about the exposure of the picture they are passing between them -- the
-                   * guide supports exposure input on Presets J and K only, and Preset L always uses
-                   * AutoExposure, which this pass has deliberately cleared.
+                   * Only a check now. The feature was built before this pipeline recorded anything,
+                   * because rebuilding it here would free the very texture the transfer has just
+                   * written and this enlargement is about to read.
                    */
-                  const int matchedPreset =
-                      Config::Instance()->DlssNrMatchPreset.value_or_default()
-                          ? DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue())
-                          : DlssNr::report::kNotApplicable;
-
-                  /*
-                   * The enlargement is created for the colour space it is actually handed.
-                   *
-                   * What reaches it is the game's own frame: Neural Rendering returns the picture in
-                   * the space it received it, and the edit transfer applies a near-unity brightness
-                   * ratio to the game's jittered buffer directly. Declaring that display-referred --
-                   * which is what clearing IsHDR does -- selects the guide's LDR path, which
-                   * quantises to 8 bits and expects a perceptually linear encoding, and handing that
-                   * linear colour is the guide's own account of banding and colour shifting.
-                   */
-                  const bool matchColour =
-                      Config::Instance()->DlssNrMatchGameColourSpace.value_or_default();
-                  const bool passIsHdr = matchColour && NRGameIsHdr();
-                  const bool passAutoExposure = matchColour && AutoExposure();
+                  if (!SecondUpscaler->IsCreated())
+                      return false;
 
                   ID3D12Resource* passExposure = nullptr;
 
-                  // Only forwarded when this pass has been told to expect an exposure of its own.
-                  // With AutoExposure set DLSS derives one, and with the flags cleared the feature
-                  // falls back to its identity texture.
-                  if (matchColour && !passAutoExposure)
+                  // Forwarded only when this pass expects an exposure of its own: with AutoExposure
+                  // set DLSS derives one, and with the flags cleared the feature falls back to its
+                  // own identity texture.
+                  if (Config::Instance()->DlssNrMatchGameColourSpace.value_or_default() && !AutoExposure())
                       InParameters->Get(NVSDK_NGX_Parameter_ExposureTexture, &passExposure);
 
-                  if (!SecondUpscaler->EnsureCreated(InCommandList, RenderWidth(), RenderHeight(),
-                                                     DisplayWidth(), DisplayHeight(),
-                                                     (int) PerfQualityValue(), DepthInverted(), JitteredMV(),
-                                                     LowResMV(), matchedPreset, passIsHdr,
-                                                     passAutoExposure))
-                  {
-                      // Without the enlargement the frame would be a render-resolution
-                      // image in the corner of a display-resolution buffer, so the mode
-                      // stands down rather than showing that.
-                      Config::Instance()->DlssNrMode.set_volatile_value((uint32_t) DlssNr::Mode::PostProcess);
-                      State::Instance().changeBackend[Handle()->Id] = true;
-                      return false;
-                  }
 
                   SecondUpscaler->SetInputBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -659,6 +692,12 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
              *
              * The upscaler is then pointed at what came back, which is the enhanced frame.
              */
+            // Super Resolution magnifies the model's work straight after this, so the detail band is
+            // compensated for that ratio the same way the multi-pass chain compensates for its own.
+            DlssNr::SetEnlargementRatio(RenderWidth() == 0
+                                            ? 1.0f
+                                            : (float) TargetWidth() / (float) RenderWidth());
+
             ID3D12Resource* enhanced = DlssNr::EvaluateAfterUpscale(
                 InCommandList, InParameters, paramColor, RenderWidth(), RenderHeight(), true);
 
@@ -728,7 +767,8 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             NRSourceWidth() != 0 ? (float) DisplayWidth() / (float) NRSourceWidth() : 1.0f;
 
         const bool firstPassIsRr = GetUpscalerType() == Upscaler::DLSSD;
-        const int preset = DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue());
+        unsigned int preset = 0;
+        const bool hasPreset = DlssNr::PresetForQuality(InParameters, (int) PerfQualityValue(), preset);
 
         unsigned int distinct = 0;
         unsigned int outOfBounds = 0;
@@ -754,6 +794,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             sr.inH = RenderHeight();
             sr.outW = TargetWidth();
             sr.outH = TargetHeight();
+            sr.hasPreset = hasPreset;
             sr.preset = preset;
             sr.hdr = IsHdr();
             sr.exposure = AutoExposure();
@@ -777,6 +818,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             first.name = firstPassIsRr ? "RR1" : "SR1";
             first.inW = first.outW = RenderWidth();
             first.inH = first.outH = RenderHeight();
+            first.hasPreset = hasPreset;
             first.preset = preset;
             first.hdr = IsHdr();
 
@@ -848,6 +890,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             sr.inH = RenderHeight();
             sr.outW = TargetWidth();
             sr.outH = TargetHeight();
+            sr.hasPreset = hasPreset;
             sr.preset = preset;
             sr.hdr = IsHdr();
             sr.exposure = AutoExposure();

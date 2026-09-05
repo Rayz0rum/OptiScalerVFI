@@ -21,6 +21,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 
 namespace
 {
@@ -139,6 +140,32 @@ DlssNr::jitter::PhaseCounter g_phases[(unsigned int) DlssNr::JitterSite::Count];
 
 // Says what the frame is built out of, once, and again whenever that stops being true.
 DlssNr::report::Latch g_reportLatch;
+
+/*
+ * How much the model's work will be magnified after this pass, set by the caller each frame.
+ *
+ * The model synthesises detail at whatever resolution it ran at, and everything that enlarges its
+ * output afterwards spreads that detail over more pixels and attenuates it -- which is why the pass
+ * reads progressively weaker the more upscaling sits behind it, at identical settings. This module
+ * can see one half of that (its own working scale) and not the other, so the pipeline states the
+ * rest. 1.0 means nothing follows, which is the post-process case.
+ */
+float g_enlargementRatio = 1.0f;
+
+// The correction itself, from the two resolutions and how much of it the user wants applied.
+float DetailScale(const Config& cfg, unsigned int appliedWidth, unsigned int modelWidth)
+{
+    const float compensation = cfg.DlssNrDetailCompensation.value_or_default();
+
+    if (compensation <= 0.0f || modelWidth == 0 || appliedWidth == 0)
+        return 1.0f;
+
+    const float ratio = ((float) appliedWidth / (float) modelWidth) * g_enlargementRatio;
+
+    // Bounded: a first-order correction has no business quadrupling anything, and an unbounded gain
+    // on a synthesised band is how ringing gets introduced in the name of fixing weakness.
+    return std::clamp(1.0f + (ratio - 1.0f) * compensation, 1.0f, 4.0f);
+}
 
 // Exposure measurement, and the white point derived from it.
 probe::FrameReducer g_reducer;
@@ -1070,7 +1097,15 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
         resolveParams.colourGuard = cfg.DlssNrColourGuard.value_or_default();
         resolveParams.debugView = cfg.DlssNrDebugView.value_or_default();
         resolveParams.maxRatio = cfg.DlssNrMaxRatio.value_or_default();
+        resolveParams.minRatio = cfg.DlssNrMinRatio.value_or_default();
         resolveParams.passthrough = isHdrBuffer ? 0u : 1u;
+        resolveParams.detailBand = cfg.DlssNrDetailBand.value_or_default();
+        resolveParams.toneStrength = cfg.DlssNrToneStrength.value_or_default();
+        resolveParams.detailStrength = cfg.DlssNrDetailStrength.value_or_default();
+
+        // Both halves of the magnification are known here: the working scale this pass ran the model
+        // at, and whatever the caller enlarges its result by afterwards.
+        resolveParams.detailScale = DetailScale(cfg, width, workWidth);
 
         Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1184,8 +1219,14 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
     params.whitePoint = cfg.DlssNrWhitePointScale.value_or_default();
     params.transferLo = cfg.DlssNrTransferLo.value_or_default();
     params.transferHi = cfg.DlssNrTransferHi.value_or_default();
-    params.transferBlur = cfg.DlssNrTransferBlur.value_or_default();
+    params.detailBand = cfg.DlssNrDetailBand.value_or_default();
+    params.toneStrength = cfg.DlssNrToneStrength.value_or_default();
+    params.detailStrength = cfg.DlssNrDetailStrength.value_or_default();
     params.highlightDamping = cfg.DlssNrHighlightDamping.value_or_default();
+
+    // The model ran at this pass's own resolution here, so the only magnification left to correct for
+    // is the enlargement the caller is about to perform.
+    params.detailScale = DetailScale(cfg, width, width);
 
     g_stages.ensure(device);
     diag::ScopedStage timed(g_stages, diag::Stage::Transfer, cmdList);
@@ -1445,22 +1486,24 @@ const char* PresetKeyForQuality(int perfQuality)
     }
 }
 
-int PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality)
+bool PresetForQuality(NVSDK_NGX_Parameter* params, int perfQuality, unsigned int& outPreset)
 {
+    outPreset = 0;
+
     if (params == nullptr)
-        return report::kNotApplicable;
+        return false;
 
     const char* key = PresetKeyForQuality(perfQuality);
 
     if (key == nullptr)
-        return report::kNotApplicable;
+        return false;
 
-    unsigned int preset = 0;
+    return params->Get(key, &outPreset) == NVSDK_NGX_Result_Success;
+}
 
-    if (params->Get(key, &preset) != NVSDK_NGX_Result_Success)
-        return report::kNotApplicable;
-
-    return (int) preset;
+void SetEnlargementRatio(float ratio)
+{
+    g_enlargementRatio = (std::isfinite(ratio) && ratio > 0.0f) ? ratio : 1.0f;
 }
 
 void ObserveJitter(JitterSite site, float x, float y)
