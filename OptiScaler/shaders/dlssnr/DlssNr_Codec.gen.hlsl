@@ -37,6 +37,10 @@ cbuffer Params : register(b0)
     float gTransferHi;
     // How completely the transferred edit fades out above the white point. 0 keeps it at full strength.
     float gHighlightDamping;
+    // How much of the reprojected previous ratio field is blended in. 0 disables the accumulation.
+    float gRatioHistory;
+    // Set on the frame a scene transition lands, so nothing is carried across a cut.
+    uint  gReset;
 };
 
 // How much colour a pixel has, independent of how bright it is: 0 is neutral, 1 fully saturated.
@@ -139,9 +143,10 @@ float3 HueOkLab(float3 incorrect, float3 correct)
 Texture2D<float4>   gSource   : register(t0);  // encode: the frame. resolve: the proxy.
 Texture2D<float4>   gModel    : register(t1);  // resolve: what the model returned.
 Texture2D<float4>   gOriginal : register(t2);  // resolve: the untouched frame.
-Texture2D<float4>   gMotion   : register(t3);  // resolve, accumulating: the game's motion vectors.
+Texture2D<float4>   gMotion   : register(t3);  // the game's motion vectors, for reprojecting history.
+Texture2D<float4>   gHistory  : register(t4);  // transfer: last frame's ratio field, in log2.
 RWTexture2D<float4> gTarget   : register(u0);  // encode: the proxy. resolve: the frame.
-RWTexture2D<float4> gKeep     : register(u1);  // encode: the untouched copy. resolve: the edit history.
+RWTexture2D<float4> gKeep     : register(u1);  // encode: the untouched copy. transfer: this frame's ratio.
 SamplerState        gLinear   : register(s0);  // so the edit can be read at a different size
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -350,6 +355,69 @@ void main(uint3 id : SV_DispatchThreadID)
         float ratio = SplitEdit(ratioFull, ratioLow, gToneStrength, gDetailStrength, gDetailScale);
         ratio = SoftLimit(ratio);
 
+        /*
+         * The ratio, averaged over time along the surface it belongs to.
+         *
+         * This is the ghosting fix, and it is worth being precise about why ghosting appears at all.
+         * The enlargement is a temporal reconstructor: it accumulates samples of what it believes is
+         * the same surface, and rejects history when the samples disagree. Feeding it the game's
+         * jittered frame multiplied by a ratio is fine as long as that ratio is a property of the
+         * SURFACE. It is not quite: the model re-decides a measurable part of its answer every frame,
+         * and the alignment offset that positions the ratio moves with the jitter, so the same
+         * surface arrives carrying a slightly different multiplier each frame. The enlargement reads
+         * that as disagreement, and disagreement is what its history logic resolves by smearing.
+         *
+         * So the ratio is accumulated here instead, before it ever reaches that pass. The field is
+         * surface-locked and low-frequency, which makes it far more forgiving under reprojection than
+         * colour would be -- and the part that survives averaging is exactly the part that was a real
+         * decision about the material, while the part that cancels is the per-frame churn.
+         *
+         * Doing it here rather than turning tone down is the point. Tone is the model's low-frequency
+         * verdict on light and colour; it is a large part of what the model is FOR, and giving it up
+         * to buy stability trades away the effect rather than fixing it.
+         *
+         * In log space, because the quantity being averaged is a ratio.
+         */
+        float logRatio = log2(max(ratio, 1e-6));
+
+        if (gRatioHistory > 0.0 && gReset == 0)
+        {
+            // Where this surface was last frame. The scales arrive already converted to UV per motion
+            // vector unit, so this is the same arithmetic whatever resolution the vectors are at.
+            const float2 motion = gMotion.SampleLevel(gLinear, uv, 0).xy;
+            const float2 histUv = uv + motion * float2(gMvScaleX, gMvScaleY);
+
+            /*
+             * Rejected where it cannot be trusted, by the same test a temporal antialiaser uses:
+             * clamp the reprojected value into the range the current neighbourhood actually spans.
+             * A disocclusion, a moving object, or a surface that has genuinely changed all produce a
+             * history value outside that range, and clamping quietly discards it without needing a
+             * depth test or a separate disocclusion pass.
+             *
+             * The five taps for that are the ones already gathered for the tone/detail split.
+             */
+            if (all(histUv > 0.0) && all(histUv < 1.0))
+            {
+                const float logLow = log2(max(ratioLow, 1e-6));
+                const float logFull = log2(max(ratioFull, 1e-6));
+
+                // A band around what this pixel and its neighbourhood are claiming, widened a little
+                // so the clamp does not fight ordinary frame-to-frame variation and stall the average.
+                const float lo = min(logLow, logFull) - 0.15;
+                const float hi = max(logLow, logFull) + 0.15;
+
+                const float logHistory = clamp(gHistory.SampleLevel(gLinear, histUv, 0).r, lo, hi);
+
+                logRatio = lerp(logRatio, logHistory, saturate(gRatioHistory));
+            }
+        }
+
+        // Kept for next frame BEFORE the highlight fade below, so what accumulates is the model's own
+        // decision rather than a value already reduced for display.
+        gKeep[id.xy] = float4(logRatio, 0.0, 0.0, 0.0);
+
+        ratio = SoftLimit(exp2(logRatio));
+
         const float4 jittered = gOriginal.Load(int3(id.xy, 0));
         const float3 jit = Sanitize(jittered.rgb);
         const float jitLuma = dot(jit, kLuma);
@@ -373,7 +441,19 @@ void main(uint3 id : SV_DispatchThreadID)
          * the delta -- the additive branch is a luminance statement too, not a channel one.
          */
         const float white = max(gWhitePoint, 1e-4);
-        const float delta = afterLuma - beforeLuma;
+
+        /*
+         * The additive branch derived from the same ratio the multiplicative one uses, rather than
+         * from the raw luminance difference.
+         *
+         * They agree exactly when nothing has been done to the ratio -- beforeLuma * (after/before -
+         * 1) is after - before -- so this changes nothing on its own. It matters once the ratio has
+         * been through the band split and the temporal average: taking the difference straight from
+         * the samples would leave the additive branch carrying an unfiltered, unsplit edit, so the
+         * two halves of the crossover would disagree and the seam between them would be visible on
+         * exactly the dark gradients the crossover exists to protect.
+         */
+        const float delta = beforeLuma * (ratio - 1.0);
 
         const float band =
             smoothstep(gTransferLo * white, max(gTransferHi * white, gTransferLo * white + 1e-6), jitLuma);

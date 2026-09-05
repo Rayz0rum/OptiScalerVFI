@@ -412,9 +412,40 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                           float alignY = 0.0f;
                           DlssNr::DerivedAlign(jitterX, jitterY, mvSignX, mvSignY, alignX, alignY);
 
-                          DlssNr::TransferEditOntoJittered(InCommandList, SecondUpscaler->EditBefore(),
-                                                           input, paramColor, SecondUpscaler->EditResult(),
-                                                           RenderWidth(), RenderHeight(), alignX, alignY);
+                          /*
+                           * The ratio field is averaged over time along the surface, which needs the
+                           * game's motion vectors in the transfer's own UV space.
+                           *
+                           * The values are in pixels of whichever space the game declared -- render
+                           * resolution normally, display resolution when it says LowResMV is false --
+                           * so the conversion divides by that space rather than by this pass's size,
+                           * and the shader then needs to know nothing about which it was.
+                           */
+                          ID3D12Resource* histMotion = nullptr;
+                          InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, &histMotion);
+
+                          if (histMotion == nullptr)
+                              histMotion = paramMotion;
+
+                          float histMvScaleX = 1.0f;
+                          float histMvScaleY = 1.0f;
+                          InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &histMvScaleX);
+                          InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &histMvScaleY);
+
+                          const float mvSpaceW =
+                              (float) (LowResMV() ? RenderWidth() : DisplayWidth());
+                          const float mvSpaceH =
+                              (float) (LowResMV() ? RenderHeight() : DisplayHeight());
+
+                          int transferReset = 0;
+                          InParameters->Get(NVSDK_NGX_Parameter_Reset, &transferReset);
+
+                          DlssNr::TransferEditOntoJittered(
+                              InCommandList, SecondUpscaler->EditBefore(), input, paramColor,
+                              SecondUpscaler->EditResult(), RenderWidth(), RenderHeight(), alignX,
+                              alignY, histMotion,
+                              mvSpaceW > 0.0f ? histMvScaleX / mvSpaceW : 0.0f,
+                              mvSpaceH > 0.0f ? histMvScaleY / mvSpaceH : 0.0f, transferReset != 0);
                           enlargeSource = SecondUpscaler->EditResult();
                       }
                   }
@@ -692,6 +723,25 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
              *
              * The upscaler is then pointed at what came back, which is the enhanced frame.
              */
+            /*
+             * Worth saying once, because it is a property of the arrangement rather than a fault in
+             * it: the picture handed to the model here is the game's raw render-resolution buffer,
+             * before anything has resolved it. The model reads high-frequency texture detail to
+             * decide what material a surface is, so the aliasing in that buffer is not merely noise
+             * it has to see past -- it is evidence, and it is false. Multi-pass exists to give it the
+             * same detail with the aliasing already resolved out.
+             */
+            static bool aliasReported = false;
+
+            if (!aliasReported)
+            {
+                aliasReported = true;
+                LOG_WARN("DLSS-NR: Upscale with DLSS-SR shows the model the game's unresolved "
+                         "render-resolution buffer, so the high-frequency detail it reads as material "
+                         "is partly aliasing. Multi-pass Rendering resolves the jitter first and is "
+                         "the arrangement that gets this right.");
+            }
+
             // Super Resolution magnifies the model's work straight after this, so the detail band is
             // compensated for that ratio the same way the multi-pass chain compensates for its own.
             DlssNr::SetEnlargementRatio(RenderWidth() == 0

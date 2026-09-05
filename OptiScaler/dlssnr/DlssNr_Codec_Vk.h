@@ -11,9 +11,9 @@
 // dxc's register shifts lay each class out in its own run:
 //
 //     binding 0      constants          (cbuffer  b0)
-//     binding 1..4   source, model, original, motion   (Texture2D    t0..t3)
-//     binding 5..6   target, keep       (RWTexture2D  u0..u1)
-//     binding 7      linear sampler     (SamplerState s0)
+//     binding 1..5   source, model, original, motion, history  (Texture2D    t0..t4)
+//     binding 6..7   target, keep       (RWTexture2D  u0..u1)
+//     binding 8      linear sampler     (SamplerState s0)
 //
 // The layout below must match that table; the script's header comment carries it too, because a
 // mismatch here produces no validation error, just wrong pixels.
@@ -50,14 +50,14 @@ class Codec_Vk
         if (vkCreateShaderModule(device_, &moduleInfo, nullptr, &module_) != VK_SUCCESS)
             return false;
 
-        VkDescriptorSetLayoutBinding bindings[8] = {};
+        VkDescriptorSetLayoutBinding bindings[9] = {};
 
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[0].descriptorCount = 1;
         bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-        for (uint32_t i = 1; i <= 4; ++i)
+        for (uint32_t i = 1; i <= 5; ++i)
         {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -65,7 +65,7 @@ class Codec_Vk
             bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         }
 
-        for (uint32_t i = 5; i <= 6; ++i)
+        for (uint32_t i = 6; i <= 7; ++i)
         {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -73,13 +73,13 @@ class Codec_Vk
             bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         }
 
-        bindings[7].binding = 7;
-        bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-        bindings[7].descriptorCount = 1;
-        bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[8].binding = 8;
+        bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        bindings[8].descriptorCount = 1;
+        bindings[8].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
         VkDescriptorSetLayoutCreateInfo layoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.bindingCount = 8;
+        layoutInfo.bindingCount = 9;
         layoutInfo.pBindings = bindings;
 
         if (vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr, &setLayout_) != VK_SUCCESS)
@@ -114,7 +114,7 @@ class Codec_Vk
 
         VkDescriptorPoolSize sizes[4] = {};
         sizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kRingSlots };
-        sizes[1] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kRingSlots * 4 };
+        sizes[1] = { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kRingSlots * 5 };
         sizes[2] = { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kRingSlots * 2 };
         sizes[3] = { VK_DESCRIPTOR_TYPE_SAMPLER, kRingSlots };
 
@@ -226,7 +226,8 @@ class Codec_Vk
     // images and merely permitted for the sampled ones, so using it throughout keeps the caller from
     // having to track two layouts for surfaces that swap roles between passes.
     void dispatch(VkCommandBuffer cmd, const Params& constants, VkImageView source, VkImageView model,
-                  VkImageView original, VkImageView motion, VkImageView target, VkImageView keep)
+                  VkImageView original, VkImageView motion, VkImageView target, VkImageView keep,
+                  VkImageView history = VK_NULL_HANDLE)
     {
         if (pipeline_ == VK_NULL_HANDLE || cmd == VK_NULL_HANDLE || source == VK_NULL_HANDLE ||
             target == VK_NULL_HANDLE)
@@ -239,11 +240,12 @@ class Codec_Vk
 
         // Absent optional inputs resolve to `source`. The shader indexes all four unconditionally, and
         // an unbound descriptor is undefined behaviour rather than a convenient zero.
-        VkDescriptorImageInfo sampled[4] = {};
+        VkDescriptorImageInfo sampled[5] = {};
         sampled[0].imageView = source;
         sampled[1].imageView = model != VK_NULL_HANDLE ? model : source;
         sampled[2].imageView = original != VK_NULL_HANDLE ? original : source;
         sampled[3].imageView = motion != VK_NULL_HANDLE ? motion : source;
+        sampled[4].imageView = history != VK_NULL_HANDLE ? history : source;
 
         for (auto& info : sampled)
             info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -263,7 +265,7 @@ class Codec_Vk
         bufferInfo.offset = (VkDeviceSize) slot * constantStride_;
         bufferInfo.range = sizeof(Params);
 
-        VkWriteDescriptorSet writes[8] = {};
+        VkWriteDescriptorSet writes[9] = {};
 
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet = sets_[slot];
@@ -284,22 +286,22 @@ class Codec_Vk
 
         for (uint32_t i = 0; i < 2; ++i)
         {
-            writes[5 + i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[5 + i].dstSet = sets_[slot];
-            writes[5 + i].dstBinding = 5 + i;
-            writes[5 + i].descriptorCount = 1;
-            writes[5 + i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            writes[5 + i].pImageInfo = &storage[i];
+            writes[6 + i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[6 + i].dstSet = sets_[slot];
+            writes[6 + i].dstBinding = 6 + i;
+            writes[6 + i].descriptorCount = 1;
+            writes[6 + i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            writes[6 + i].pImageInfo = &storage[i];
         }
 
-        writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[7].dstSet = sets_[slot];
-        writes[7].dstBinding = 7;
-        writes[7].descriptorCount = 1;
-        writes[7].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-        writes[7].pImageInfo = &samplerInfo;
+        writes[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[8].dstSet = sets_[slot];
+        writes[8].dstBinding = 8;
+        writes[8].descriptorCount = 1;
+        writes[8].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+        writes[8].pImageInfo = &samplerInfo;
 
-        vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 9, writes, 0, nullptr);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout_, 0, 1, &sets_[slot],

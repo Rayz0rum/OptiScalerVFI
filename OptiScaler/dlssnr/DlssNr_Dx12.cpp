@@ -81,6 +81,23 @@ struct NrState
     // Destination for the reordered arrangement, which must not write into the game's own buffer.
     ID3D12Resource* scratchOut = nullptr;
 
+    /*
+     * The ratio field, this frame and last, for the temporal average in the transfer.
+     *
+     * Two of them because a dispatch reads history at a REPROJECTED position -- some other pixel --
+     * while writing its own, so reading and writing one texture would be a race with itself.
+     *
+     * R16_FLOAT and one channel: what is stored is the log of a scalar ratio. Log rather than the
+     * ratio itself because that is the space the average is taken in, and because ratios cluster
+     * around 1.0 where a float has least absolute precision, while their logs cluster around 0 where
+     * it has most.
+     */
+    ID3D12Resource* ratioHistory[2] = { nullptr, nullptr };
+    unsigned int ratioHistoryIndex = 0;
+    unsigned int ratioHistoryWidth = 0;
+    unsigned int ratioHistoryHeight = 0;
+    bool ratioHistoryValid = false;
+
     // The first pass's resampled inputs, in Multi-pass Custom only.
     ID3D12Resource* f1Color = nullptr;
     ID3D12Resource* f1Depth = nullptr;
@@ -1181,9 +1198,67 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
 }
 
 
+/*
+ * The pair of ratio-history surfaces, built to match the transfer's size.
+ *
+ * Rebuilt rather than resized when the geometry moves, and the accumulation is marked invalid when
+ * that happens: a field reprojected from a different resolution describes different pixels.
+ */
+bool EnsureRatioHistory(ID3D12Device* device, unsigned int width, unsigned int height)
+{
+    if (device == nullptr || width == 0 || height == 0)
+        return false;
+
+    if (g_nr.ratioHistory[0] != nullptr && g_nr.ratioHistoryWidth == width &&
+        g_nr.ratioHistoryHeight == height)
+        return true;
+
+    for (auto& surface : g_nr.ratioHistory)
+        ParkNrResource(surface);
+
+    g_nr.ratioHistoryValid = false;
+    g_nr.ratioHistoryWidth = width;
+    g_nr.ratioHistoryHeight = height;
+
+    D3D12_RESOURCE_DESC desc = {};
+    desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width = width;
+    desc.Height = height;
+    desc.DepthOrArraySize = 1;
+    desc.MipLevels = 1;
+    // One channel, and the log of a ratio rather than the ratio: the average is taken in log space,
+    // and logs of near-unity ratios sit around zero where a float has its precision.
+    desc.Format = DXGI_FORMAT_R16_FLOAT;
+    desc.SampleDesc.Count = 1;
+    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+    for (auto& surface : g_nr.ratioHistory)
+    {
+        if (FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                   IID_PPV_ARGS(&surface))))
+        {
+            surface = nullptr;
+
+            for (auto& other : g_nr.ratioHistory)
+                ParkNrResource(other);
+
+            g_nr.ratioHistoryWidth = 0;
+            g_nr.ratioHistoryHeight = 0;
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
                               ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
-                              unsigned int width, unsigned int height, float alignX, float alignY)
+                              unsigned int width, unsigned int height, float alignX, float alignY,
+                              ID3D12Resource* motion, float mvScaleUvX, float mvScaleUvY, bool reset)
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
@@ -1228,6 +1303,39 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
     // is the enlargement the caller is about to perform.
     params.detailScale = DetailScale(cfg, width, width);
 
+    /*
+     * The temporal average of the ratio field, which is the ghosting fix.
+     *
+     * Needs motion vectors, somewhere to keep last frame's field, and a way to know the field is not
+     * describing a different scene. Missing any of those, the accumulation stands down rather than
+     * reprojecting against something that is not there -- the transfer still works, it simply carries
+     * this frame's ratio alone, which is what earlier builds did.
+     */
+    const float historyStrength = cfg.DlssNrRatioHistory.value_or_default();
+    const bool wantHistory =
+        historyStrength > 0.0f && motion != nullptr && EnsureRatioHistory(device, width, height);
+
+    ID3D12Resource* historyRead = nullptr;
+    ID3D12Resource* historyWrite = nullptr;
+
+    if (wantHistory)
+    {
+        historyRead = g_nr.ratioHistory[g_nr.ratioHistoryIndex];
+        historyWrite = g_nr.ratioHistory[g_nr.ratioHistoryIndex ^ 1u];
+        g_nr.ratioHistoryIndex ^= 1u;
+
+        params.ratioHistory = historyStrength;
+
+        // The first frame after a cut, a rebuild or a resolution change has nothing valid behind it.
+        params.reset = (reset || !g_nr.ratioHistoryValid) ? 1u : 0u;
+        g_nr.ratioHistoryValid = true;
+
+        // Already converted by the caller to UV per motion vector unit, so the shader's arithmetic is
+        // the same whether the game's vectors are at render or display resolution.
+        params.mvScaleX = mvScaleUvX;
+        params.mvScaleY = mvScaleUvY;
+    }
+
     g_stages.ensure(device);
     diag::ScopedStage timed(g_stages, diag::Stage::Transfer, cmdList);
 
@@ -1236,7 +1344,31 @@ void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource
     Barrier(cmdList, after, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-    g_codec.dispatch(cmdList, params, before, after, jittered, target, nullptr);
+    ID3D12Resource* motionIn = nullptr;
+
+    if (wantHistory)
+    {
+        Barrier(cmdList, historyRead, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+        motionIn = ReadableGuide(device, cmdList, motion, &g_nr.motionClone);
+
+        if (motionIn == nullptr)
+            motionIn = motion;
+    }
+
+    g_codec.dispatch(cmdList, params, before, after, jittered, target, historyWrite, motionIn,
+                     historyRead);
+
+    if (wantHistory)
+    {
+        Barrier(cmdList, historyRead, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+        if (g_nr.motionClone != nullptr)
+            Barrier(cmdList, g_nr.motionClone, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_COPY_DEST);
+    }
 
     Barrier(cmdList, before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1606,7 +1738,8 @@ void Shutdown()
 
     // Freed rather than parked: nothing is in flight once the device is going away, and there will be
     // no further frames to retire them on.
-    for (ID3D12Resource** r : { &g_nr.f1Color, &g_nr.f1Depth, &g_nr.f1Mvec })
+    for (ID3D12Resource** r : { &g_nr.f1Color, &g_nr.f1Depth, &g_nr.f1Mvec, &g_nr.ratioHistory[0],
+                                &g_nr.ratioHistory[1] })
     {
         if (*r != nullptr)
         {

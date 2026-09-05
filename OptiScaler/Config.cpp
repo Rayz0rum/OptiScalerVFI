@@ -322,6 +322,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrFeature1Pipeline.set_from_config(readUInt("DlssNr", "Feature1Pipeline"));
             DlssNrFeature1Scale.set_from_config(readInt("DlssNr", "Feature1Scale"));
             DlssNrHighlightDamping.set_from_config(readFloat("DlssNr", "HighlightDamping"));
+            DlssNrRatioHistory.set_from_config(readFloat("DlssNr", "RatioHistory"));
             DlssNrMatchGameColourSpace.set_from_config(readBool("DlssNr", "MatchGameColourSpace"));
             DlssNrMultiPassAlign.set_from_config(readInt("DlssNr", "MultiPassAlign"));
             DlssNrMultiPassEnlarge.set_from_config(readUInt("DlssNr", "MultiPassEnlarge"));
@@ -1195,6 +1196,8 @@ bool Config::SaveIni()
                  GetIntValue(Instance()->DlssNrMultiPassAlign.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HighlightDamping",
                  GetFloatValue(Instance()->DlssNrHighlightDamping.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "RatioHistory",
+                 GetFloatValue(Instance()->DlssNrRatioHistory.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MatchGameColourSpace",
                  GetBoolValue(Instance()->DlssNrMatchGameColourSpace.value_for_config()).c_str());
     {

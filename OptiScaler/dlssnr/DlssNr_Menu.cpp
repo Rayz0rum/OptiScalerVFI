@@ -198,6 +198,33 @@ void RenderMenu(Config* config, float menuResScale)
 
             const auto selected = (DlssNr::Mode) config->DlssNrMode.value_or_default();
 
+            /*
+             * The one placement that hands the model an aliased picture, said out loud.
+             *
+             * The model reads high-frequency texture detail to decide what material a surface is, so
+             * its input wants to be as detailed as possible AND clean. Those pull in opposite
+             * directions and only one arrangement satisfies both: a 1:1 first pass, which resolves
+             * the game's jitter into antialiased detail at render resolution before the model sees
+             * it. This one skips that and shows the model the game's raw jittered buffer, where the
+             * high frequencies present are aliasing rather than material -- so what comes back is not
+             * a weaker version of the same answer, it is a different one.
+             */
+            if (selected == DlssNr::Mode::UpscaleWithSR)
+            {
+                ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f),
+                                   "The model is being shown an aliased picture.");
+                HelpMarker("This placement runs the model on the game's raw render-resolution"
+                               "\nbuffer, before anything has resolved it -- so the high-frequency"
+                               "\ndetail it sees is aliasing rather than material."
+                               "\n\nThat matters more than it sounds. The model reads fine texture"
+                               "\ndetail to work out what surface it is looking at, so feeding it"
+                               "\naliasing does not weaken the answer, it changes it."
+                               "\n\nMulti-pass Rendering is the arrangement that gets this right: its"
+                               "\nfirst pass resolves the jitter into clean antialiased detail at"
+                               "\nrender resolution, which is both the most detail available and the"
+                               "\ncleanest form of it.");
+            }
+
             if (DlssNr::UsesTwoFeatures(selected))
             {
                 static const char* pipelineNames[] = { "Ray Reconstruction", "Super Resolution" };
@@ -249,6 +276,29 @@ void RenderMenu(Config* config, float menuResScale)
                                "\ndeclares rather than from trying values."
                                "\n\nThe manual signs remain for an engine that disagrees with the guide."
                                "\nOff disables the alignment entirely.");
+
+                    float history = config->DlssNrRatioHistory.value_or_default();
+
+                    if (ImGui::SliderFloat("Ratio history", &history, 0.0f, 0.95f, "%.2f"))
+                        config->DlssNrRatioHistory = history;
+
+                    HelpMarker("The ghosting control."
+                               "\n\nThe enlargement is a temporal reconstructor: it accumulates"
+                               "\nsamples of what it believes is one surface and resolves"
+                               "\ndisagreement between them by smearing. A ratio that changes frame"
+                               "\nto frame on a static surface is exactly that disagreement -- the"
+                               "\nmodel re-decides part of its answer each frame, and the alignment"
+                               "\noffset that positions the ratio moves with the jitter."
+                               "\n\nThis averages the ratio field along the surface first, carried"
+                               "\nforward by motion vectors, with a neighbourhood clamp throwing the"
+                               "\nhistory away across disocclusions and moving objects. What survives"
+                               "\nthe average is the model's real decision about the material; what"
+                               "\ncancels is the per-frame churn."
+                               "\n\nUse this rather than turning Tone strength down. Tone is the"
+                               "\nmodel's low-frequency verdict on light and colour and a large part"
+                               "\nof what it is for -- lowering it hides the ghosting by removing the"
+                               "\neffect."
+                               "\n\nHigher is steadier and slower to respond. 0 is the old behaviour.");
 
                     float damping = config->DlssNrHighlightDamping.value_or_default();
 
@@ -380,7 +430,21 @@ void RenderMenu(Config* config, float menuResScale)
                        "\nthe fine structure it synthesises does not, and softens. Worth having when the"
                        "\npass costs more than you want to pay for the detail it returns."
                        "\n\nThe frame itself stays at full detail whatever this says -- only the"
-                       "\nmodel's own work is done small.");
+                       "\nmodel's own work is done small."
+                       "\n\nThere is a reason to be careful with it beyond softness. The model reads"
+                       "\nhigh-frequency texture detail to work out what MATERIAL it is looking at,"
+                       "\nand shrinking the picture first is a low-pass -- it removes exactly the"
+                       "\nevidence that decision rests on. So this does not simply scale the effect"
+                       "\ndown; past a point it changes what the model thinks the surface is.");
+
+    if (config->DlssNrWorkingScale.value_or_default() < 0.99f)
+    {
+        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f),
+                           "The model is being shown a low-passed picture.");
+        HelpMarker("Below full resolution the model is shown a shrunk copy, and the fine texture"
+                       "\ndetail it uses to identify materials is the first thing a shrink removes."
+                       "\nIf the look changes character rather than just weakening, this is why.");
+    }
 
         ImGui::SeparatorText("How much of it lands");
 

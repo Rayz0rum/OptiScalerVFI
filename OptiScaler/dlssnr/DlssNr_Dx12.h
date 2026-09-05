@@ -76,10 +76,20 @@ void RetryAfterFailure();
  *
  * `before` is what the model was shown, `after` what it returned, `jittered` the game's own frame, and
  * `target` receives the jittered frame carrying the edit. All four are at render resolution.
+ *
+ * `motion` and the two scales drive the temporal average of the ratio field, which is what keeps the
+ * enlargement from smearing: that pass accumulates samples of what it believes is one surface and
+ * resolves disagreement by smearing, and a ratio that changes frame to frame on a static surface is
+ * exactly that disagreement. The scales must already be in UV per motion vector unit, so the shader
+ * needs to know nothing about whether the game's vectors are at render or display resolution.
+ * Passing a null motion texture disables the accumulation rather than failing.
+ *
+ * `reset` drops the accumulated field, for a scene transition.
  */
 void TransferEditOntoJittered(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* before,
                               ID3D12Resource* after, ID3D12Resource* jittered, ID3D12Resource* target,
-                              unsigned int width, unsigned int height, float alignX, float alignY);
+                              unsigned int width, unsigned int height, float alignX, float alignY,
+                              ID3D12Resource* motion, float mvScaleUvX, float mvScaleUvY, bool reset);
 
 /*
  * Resample the first pass's inputs down to the size it is being run at, for Multi-pass Custom.

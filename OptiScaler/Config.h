@@ -301,6 +301,26 @@ class Config
     // behaviour exactly.
     CustomOptional<float> DlssNrHighlightDamping { 1.0f };
 
+    // How much of the reprojected previous ratio field is blended into this one, in multi-pass.
+    //
+    // The enlargement is a temporal reconstructor: it accumulates samples of what it believes is the
+    // same surface, and resolves disagreement between them by smearing. A ratio that changes frame to
+    // frame on a static surface is exactly that disagreement -- the model re-decides part of its
+    // answer each frame, and the alignment offset that positions the ratio moves with the jitter -- so
+    // the enlargement smears in proportion to how unsteady the ratio is.
+    //
+    // Averaging the field along the surface first, with motion vectors carrying it forward and a
+    // neighbourhood clamp rejecting it across disocclusions, removes the churn and keeps the decision.
+    // The field is surface-locked and low-frequency, which makes it far more forgiving under
+    // reprojection than colour would be.
+    //
+    // This is the ghosting control. Turning tone down also reduces ghosting, but tone is the model's
+    // low-frequency verdict on light and colour and a large part of what it is for -- giving that up
+    // trades away the effect rather than fixing it.
+    //
+    // 0 disables the accumulation and is what earlier builds did.
+    CustomOptional<float> DlssNrRatioHistory { 0.75f };
+
     // Whether the enlargement is created for the colour space it is actually handed.
     //
     // It was created with IsHDR and AutoExposure cleared and given an identity exposure, on the

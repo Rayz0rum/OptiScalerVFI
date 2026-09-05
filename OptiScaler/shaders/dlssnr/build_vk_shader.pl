@@ -9,9 +9,9 @@
 # dxc's -fvk-*-shift flags map each register class onto its own run of Vulkan descriptor bindings:
 #
 #     b0        -> binding 0      constants
-#     t0 .. t3  -> binding 1 .. 4 source, model, original, motion
-#     u0 .. u1  -> binding 5 .. 6 target, keep
-#     s0        -> binding 7      the linear sampler
+#     t0 .. t4  -> binding 1 .. 5 source, model, original, motion, ratio history
+#     u0 .. u1  -> binding 6 .. 7 target, keep
+#     s0        -> binding 8      the linear sampler
 #
 # DlssNr_Codec_Vk.h's descriptor set layout must match that table.
 #
@@ -64,8 +64,8 @@ close($out_hlsl);
 my @cmd = ($dxc, '-T', 'cs_6_0', '-E', 'main', '-spirv',
            '-fvk-b-shift', '0', '0',
            '-fvk-t-shift', '1', '0',
-           '-fvk-u-shift', '5', '0',
-           '-fvk-s-shift', '7', '0',
+           '-fvk-u-shift', '6', '0',
+           '-fvk-s-shift', '8', '0',
            '-Fo', $spv, $hlsl);
 
 print "compiling: @cmd\n";
