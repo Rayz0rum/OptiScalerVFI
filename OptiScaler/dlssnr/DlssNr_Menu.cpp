@@ -704,10 +704,20 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
             config->DlssNrDebugView = (uint32_t) debugView;
 
-        HelpMarker("Proxy is the picture handed to the model -- if that looks wrong, the white point"
+        HelpMarker("Proxy is the picture handed to the model, shown at the brightness the model sees"
+                       "\nit -- not scaled back up to the frame's. If it looks wrong, the white point"
                        "\nis wrong and nothing downstream can be judged."
-                       "\n\nDifference shows what the model actually changed, amplified twenty times and"
-                       "\ncentred on grey. A flat grey frame there means it is doing nothing.");
+                       "\n\nWhat you want: an ordinary, normally-exposed picture. Midtones around"
+                       "\nmid-grey, highlights bright but still holding detail, shadows dark but not"
+                       "\ncrushed. It should look like a screenshot of the game, because that is what"
+                       "\nthe model was trained on."
+                       "\n\nToo dark and flat means Paper white is too high -- the frame is being"
+                       "\ndivided by more than its own white. Large areas of detail-less white mean it"
+                       "\nis too low. Either way the model has nothing to work with and the pass will"
+                       "\ncost its full time for no visible result."
+                       "\n\nModel is what came back, in the same space, so the two can be compared"
+                       "\ndirectly. Difference shows what it actually changed, amplified twenty times"
+                       "\nand centred on grey -- a flat grey frame there means it is doing nothing.");
 
         ImGui::PopItemWidth();
     }

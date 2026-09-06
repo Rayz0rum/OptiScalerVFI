@@ -614,15 +614,29 @@ void main(uint3 id : SV_DispatchThreadID)
     float originalLuma = dot(original, kLuma);
     float proxyLuma = dot(proxy, kLuma);
 
+    /*
+     * Shown in the model's own space, NOT scaled back up to the frame's.
+     *
+     * These used to be multiplied by the white point before display, which reverses the division the
+     * encode performed and hands back something indistinguishable from the original frame. That made
+     * the view useless for the one question it exists to answer. A white point of 4 produces a
+     * quarter-brightness proxy, the model does almost nothing with it, and the debug view showed a
+     * perfectly normal picture because it had multiplied the four straight back in.
+     *
+     * Unscaled, the proxy appears exactly as bright as the model sees it: correctly exposed it looks
+     * like an ordinary frame, too high a white point looks obviously dark, too low looks flat white in
+     * the highlights. That is a judgement anyone can make at a glance, which is the entire point of a
+     * debug view.
+     */
     if (gDebugView == 1)
     {
-        gTarget[id.xy] = float4(proxy * gWhitePoint, originalSample.a);
+        gTarget[id.xy] = float4(proxy, originalSample.a);
         return;
     }
 
     if (gDebugView == 2)
     {
-        gTarget[id.xy] = float4(model * gWhitePoint, originalSample.a);
+        gTarget[id.xy] = float4(model, originalSample.a);
         return;
     }
 
