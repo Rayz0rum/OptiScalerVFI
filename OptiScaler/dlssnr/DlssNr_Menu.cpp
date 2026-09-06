@@ -643,12 +643,28 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::SliderFloat("Paper white", &wpScale, 0.25f, 4.0f, "%.2fx"))
             config->DlssNrWhitePointScale = wpScale;
 
-        HelpMarker("Multiplies the white point above -- automatic or manual -- before the model"
-                       "\nsees the frame. This is the paper-white control."
-                       "\n\nAbove 1 the picture handed over is darker, so highlights sit lower on the"
-                       "\ncurve and the model treats them as less extreme; below 1, the opposite. It"
-                       "\nis the quickest way to change how strongly the model reads a bright scene."
+        HelpMarker("The value in the game's frame that the model should treat as white. The frame is"
+                       "\nDIVIDED by this before the model sees it."
+                       "\n\nSo above 1 the model is shown a DARKER picture, and it has correspondingly"
+                       "\nless to say -- at 4 it sees a quarter-brightness frame, which for most games"
+                       "\nis badly under-exposed and the pass will appear to do nothing while still"
+                       "\ncosting its full time. Below 1 the picture is brighter and clips sooner."
+                       "\n\nThis is not a strength control and turning it up does not increase the"
+                       "\neffect. 1.0 is right for a game whose linear buffer puts diffuse white near"
+                       "\n1.0, which is most of them. Raise it only for a title whose scene values run"
+                       "\nfar above that and whose proxy is visibly blown."
+                       "\n\nSet Debug view to Proxy and look: that is the picture the model is being"
+                       "\nhanded, and if it is too dark or flat white, nothing downstream can help."
                        "\n\nAt strength zero the frame is still bit-identical whatever this says.");
+
+        if (wpScale > 1.5f || wpScale < 0.5f)
+        {
+            ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f),
+                               "The model is being shown the frame divided by %.2f.", wpScale);
+            HelpMarker("Far from 1.0 the picture handed to the model stops resembling the finished,"
+                           "\nnormally-exposed frames it was trained on, so it does less and less."
+                           "\nCheck it with Debug view set to Proxy before tuning anything else.");
+        }
 
         float maxRatio = config->DlssNrMaxRatio.value_or_default();
         if (ImGui::SliderFloat("Highlight guard", &maxRatio, 1.0f, 8.0f, "%.1fx"))
