@@ -583,11 +583,29 @@ void RenderMenu(Config* config, float menuResScale)
                        "\n\nNot the same scale as the super resolution or ray reconstruction presets --"
                        "\nthe same number means something different here.");
 
-        static const char* nrStyleNames[] = { "Default (standard)", "Natural", "Cinematic" };
+        /*
+         * Numbered past the third, and the first three marked unverified, because that is the honest
+         * state of this control.
+         *
+         * The model DLL contains the string "DLSSNR.Style" exactly once -- the parameter name -- and
+         * no enumeration, no value names, and none of "standard", "natural" or "cinematic" anywhere
+         * in it. Those labels came from somewhere upstream of us and we have never confirmed them
+         * against the snippet. The valid range lives inside the CUDA kernel, where a string scan
+         * cannot reach it.
+         *
+         * The old list also clamped to 2, so anything set higher in the ini was destroyed the moment
+         * the combo was touched -- which made the range impossible to explore from the UI. Sweeping
+         * it with the Difference debug view is the only way to find out which values are actually
+         * distinct, so the range is open enough to do that.
+         */
+        static const char* nrStyleNames[] = { "0 - default (unverified)",  "1 - natural (unverified)",
+                                              "2 - cinematic (unverified)", "3 - unknown",
+                                              "4 - unknown",               "5 - unknown",
+                                              "6 - unknown",               "7 - unknown" };
         int style = (int) config->DlssNrStyle.value_or_default();
 
-        if (style > 2)
-            style = 2;
+        if (style > 7)
+            style = 7;
 
         if (ImGui::Combo("Style", &style, nrStyleNames, IM_ARRAYSIZE(nrStyleNames)))
             config->DlssNrStyle = (uint32_t) style;
@@ -599,8 +617,17 @@ void RenderMenu(Config* config, float menuResScale)
                    "\n\nNatural: the same detail work with a gentler hand. Keeps skin tones and"
                    "\ntonal balance closer to what the game rendered."
                    "\n\nCinematic: tones down the shine and over-processing for a film-like look."
-                   "\n\nRead when the model is built, so a change rebuilds it after a moment. The"
-                   "\nnames come from community testing; NVIDIA ships no names in the binaries.");
+                   "\n\nAll three descriptions come from community testing and none is confirmed."
+                   "\nThe model DLL contains \"DLSSNR.Style\" exactly once -- the parameter name --"
+                   "\nwith no enumeration and no value names anywhere in it, so the real range lives"
+                   "\ninside the CUDA kernel where it cannot be read off."
+                   "\n\n3 and above are offered because nothing rules them out, not because they are"
+                   "\nknown to exist. To find out: set Debug view to Difference, which shows what the"
+                   "\nmodel changed amplified twenty times, and step through the values on a parked"
+                   "\ncamera. Any that produce an identical picture are either the same profile or"
+                   "\nout of range and silently clamped."
+                   "\n\nRead when the model is built, so each change rebuilds it -- give it a moment"
+                   "\nto settle before judging.");
 
         float intensity = config->DlssNrIntensity.value_or_default();
         if (ImGui::SliderFloat("Intensity", &intensity, 0.0f, 2.0f, "%.2f"))
