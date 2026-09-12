@@ -36,6 +36,7 @@
 #include <misc/IdentifyGpu.h>
 #include <hooks/Xell_Hooks.h>
 #include <low_latency/input/input_common.h>
+#include <mfgunlock/MfgUnlock.h>
 
 #define MARK_ALL_BACKENDS_CHANGED()                                                                                    \
     for (auto& singleChangeBackend : State::Instance().changeBackend)                                                  \
@@ -6944,6 +6945,7 @@ void MenuCommon::RenderMainMenuTable(RenderMenuContext& ctx)
 #if OPTI_DLSSNR
         DlssNr::RenderMenu(ctx.config, ctx.menuResScale);
 #endif
+        MfgUnlock::RenderMenu(ctx.config, ctx.menuResScale);
         RenderMagnifierSettings(ctx);
         RenderQuirksSettings(ctx);
         RenderAdvancedSettings(ctx);
