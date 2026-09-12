@@ -645,18 +645,47 @@ void RenderMenu(Config* config, float menuResScale)
             config->DlssNrLocalTone = localTone;
 
 
-        float skin = config->DlssNrSkinStructure.value_or_default();
-        if (ImGui::SliderFloat("Skin structure", &skin, -1.0f, 2.0f, "%.2f"))
-            config->DlssNrSkinStructure = skin;
-
-        HelpMarker("-1 means follow local structure, and is the model's own default -- it is not a"
-                       "\nstrength of zero. 0 and above set skin independently of the rest of the frame.");
-
+        /*
+         * The mask gates the slider, so it comes first and the slider only appears behind it.
+         *
+         * Skin structure is not an independent control -- it is a per-region override, and without a
+         * mask saying which pixels are skin there is no region for it to apply to. Presenting the two
+         * side by side invited setting a value that could not do anything, and worse, invited reading
+         * "it did nothing" as the model ignoring the control rather than as the mask being off.
+         */
         bool autoMask = config->DlssNrAutoMask.value_or_default();
-        if (ImGui::Checkbox("Auto skin mask", &autoMask))
+        if (ImGui::Checkbox("Character mask", &autoMask))
             config->DlssNrAutoMask = autoMask;
 
-        HelpMarker("Lets the model find skin itself rather than treating the frame uniformly.");
+        HelpMarker("Lets the model find faces and skin itself rather than treating the frame"
+                       "\nuniformly."
+                       "\n\nThis is what makes the facial work separable. With it on, the model knows"
+                       "\nwhich pixels are skin, and Skin structure below can then be set for those"
+                       "\npixels alone -- so faces can be tuned without touching the rest of the"
+                       "\nframe, and vice versa."
+                       "\n\nOff, there is no skin region to address and Skin structure has nothing to"
+                       "\napply to, so it is hidden rather than left there doing nothing.");
+
+        if (autoMask)
+        {
+            ScopedIndent skinIndent {};
+
+            float skin = config->DlssNrSkinStructure.value_or_default();
+            if (ImGui::SliderFloat("Skin structure", &skin, -1.0f, 2.0f, "%.2f"))
+                config->DlssNrSkinStructure = skin;
+
+            HelpMarker("How much structure the model synthesises on the pixels the character mask"
+                           "\nidentified as skin, independently of Local structure everywhere else."
+                           "\n\n-1 means follow Local structure, and is the model's own default -- it"
+                           "\nis NOT a strength of zero. Anything from 0 up sets skin on its own"
+                           "\nterms: below Local structure for softer faces, above it for harder"
+                           "\npores and stubble."
+                           "\n\nThis is the one control aimed at faces specifically, which is where"
+                           "\nover-processing is most obvious and least wanted -- skin that has been"
+                           "\npushed too hard reads as texture rather than as a face."
+                           "\n\nChanging it makes the model drop its temporal history, so give it a"
+                           "\nmoment to settle before judging.");
+        }
 
         ImGui::SeparatorText("Colour");
 
