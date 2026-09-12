@@ -159,6 +159,9 @@ DlssNr::jitter::PhaseCounter g_phases[(unsigned int) DlssNr::JitterSite::Count];
 // Says what the frame is built out of, once, and again whenever that stops being true.
 DlssNr::report::Latch g_reportLatch;
 
+// The last thing the quantised-kernel hybrid said, so a change can be logged and a repeat cannot.
+std::string g_lastHybridStatus;
+
 /*
  * How much the model's work will be magnified after this pass, set by the caller each frame.
  *
@@ -1181,6 +1184,25 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
      */
     DlssNrNative::SetEnabled(cfg.DlssNrEnabled.value_or_default());
     DlssNrNative::SetPrecision(cfg.DlssNrPrecision.value_or_default());
+
+    /*
+     * Its status, in the log, because the module itself only ever wrote it to stderr.
+     *
+     * A game is not a console application. Nothing written to stderr survives to anywhere a user can
+     * find it, so every explanation the hybrid produced -- which asset was missing, which shape it
+     * refused, whether it had fallen back -- was being generated and then discarded. Diagnosing it
+     * meant guessing, which is what happened the first time somebody tried to use it.
+     *
+     * Logged on change rather than per frame: the string carries a token count and a block index, so
+     * it moves constantly while the thing is working and would drown the log within seconds.
+     */
+    if (std::string hybrid = DlssNrNative::Status(); hybrid != g_lastHybridStatus)
+    {
+        g_lastHybridStatus = hybrid;
+
+        if (!hybrid.empty())
+            LOG_INFO("DLSS-NR kernel precision: {}", hybrid);
+    }
 
     g_stages.start(diag::Stage::Inference, cmdList);
 
