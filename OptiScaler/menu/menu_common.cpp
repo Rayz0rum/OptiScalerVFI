@@ -38,6 +38,15 @@
 #include <low_latency/input/input_common.h>
 #include <mfgunlock/MfgUnlock.h>
 
+enum class UiTargetMode
+{
+    SDR,
+    LinearHDR,
+    ScRGB,
+    PQ,
+    HLG
+};
+
 #define MARK_ALL_BACKENDS_CHANGED()                                                                                    \
     for (auto& singleChangeBackend : State::Instance().changeBackend)                                                  \
         singleChangeBackend.second = true;
@@ -836,68 +845,210 @@ void MenuCommon::PopulateCombo(const std::string& name, TStorage& currentValue,
     }
 }
 
-static ImVec4 toneMapColor(const ImVec4& color)
+static UiTargetMode getUiTargetMode()
 {
-    if (State::Instance().isHdrActive ||
-        (!Config::Instance()->OverlayMenu.value_or_default() && State::Instance().currentFeature != nullptr &&
-         State::Instance().currentFeature->IsHdr()))
+    const auto& state = State::Instance();
+
+    const bool fallback = !Config::Instance()->OverlayMenu.value_or_default();
+
+    if (fallback)
     {
-        // Controls how strongly HDR/UI colors are pushed into the tone mapper before compression.
-        // Higher values make colors brighter before mapping; lower values make the result dimmer.
-        constexpr float exposure = 1.0f;
+        // We have no reliable swapchain/output color-space information here.
+        // Only classify the upscaled working image.
+        if (state.currentFeature && state.currentFeature->IsHdr())
+            return UiTargetMode::LinearHDR;
 
-        // Blends between original color and fully tone-mapped color.
-        // 0.0 = no tone mapping, 1.0 = full Reinhard compression.
-        constexpr float strength = 1.0f;
-
-        float peak = std::max(color.x, std::max(color.y, color.z));
-
-        if (peak <= 0.0f)
-            return color;
-
-        float exposedPeak = peak * exposure;
-        float mappedPeak = exposedPeak / (1.0f + exposedPeak);
-
-        float reinhardScale = mappedPeak / peak;
-        float scale = 1.0f + (reinhardScale - 1.0f) * strength;
-
-        return ImVec4(color.x * scale, color.y * scale, color.z * scale, color.w);
+        return UiTargetMode::SDR;
     }
 
-    return color;
+    const auto& output = state.outputColorSpace;
+
+    // If SetColorSpace1 has not provided a known/valid color space,
+    // fall back conservatively.
+    if (!output.valid)
+        return UiTargetMode::SDR;
+
+    switch (output.transfer)
+    {
+    case ColorTransfer::Linear:
+        // scRGB: linear Rec.709 RGB.
+        //
+        // hdrOutputActive is intentionally NOT required here.
+        // A scRGB swapchain is still linear even when the physical output
+        // is currently SDR. hdrOutputActive only affects the desired
+        // reference-white scaling in toneMapColor().
+        if (output.model == ColorModel::RGB && output.primaries == ColorPrimaries::Rec709)
+        {
+            return UiTargetMode::ScRGB;
+        }
+
+        break;
+
+    case ColorTransfer::PQ:
+        // Direct PQ UI rendering currently assumes RGB PQ / Rec.2020.
+        //
+        // Do not treat YCbCr PQ as an RGB render target.
+        if (output.model == ColorModel::RGB && output.primaries == ColorPrimaries::Rec2020)
+        {
+            return UiTargetMode::PQ;
+        }
+
+        break;
+
+    case ColorTransfer::HLG:
+        // Current HLG UI path assumes an RGB render target.
+        //
+        // DXGI HLG modes are commonly YCbCr, so reject unsupported
+        // combinations rather than applying an RGB HLG transform blindly.
+        if (output.model == ColorModel::RGB && output.primaries == ColorPrimaries::Rec2020)
+        {
+            return UiTargetMode::HLG;
+        }
+
+        break;
+
+    case ColorTransfer::SRGB:
+        return UiTargetMode::SDR;
+
+    case ColorTransfer::Unknown:
+    default:
+        break;
+    }
+
+    // Unsupported model / primaries / transfer combination.
+    return UiTargetMode::SDR;
+}
+
+static float srgbToLinear(float x)
+{
+    x = std::clamp(x, 0.0f, 1.0f);
+
+    if (x <= 0.04045f)
+        return x / 12.92f;
+
+    return std::pow((x + 0.055f) / 1.055f, 2.4f);
+}
+
+static float linearToPQ(float nits)
+{
+    // SMPTE ST.2084
+    constexpr float m1 = 2610.0f / 16384.0f;
+    constexpr float m2 = 2523.0f / 32.0f;
+    constexpr float c1 = 3424.0f / 4096.0f;
+    constexpr float c2 = 2413.0f / 128.0f;
+    constexpr float c3 = 2392.0f / 128.0f;
+
+    const float y = std::clamp(nits / 10000.0f, 0.0f, 1.0f);
+    const float ym1 = std::pow(y, m1);
+
+    return std::pow((c1 + c2 * ym1) / (1.0f + c3 * ym1), m2);
+}
+
+static float linearToHLG(float x)
+{
+    // BT.2100 HLG OETF
+    constexpr float a = 0.17883277f;
+    constexpr float b = 0.28466892f;
+    constexpr float c = 0.55991073f;
+
+    x = std::max(x, 0.0f);
+
+    if (x <= (1.0f / 12.0f))
+        return std::sqrt(3.0f * x);
+
+    return a * std::log(12.0f * x - b) + c;
+}
+
+static ImVec4 linear709To2020(float r, float g, float b)
+{
+    return ImVec4(0.6274040f * r + 0.3292820f * g + 0.0433136f * b, 0.0690970f * r + 0.9195400f * g + 0.0113612f * b,
+                  0.0163916f * r + 0.0880132f * g + 0.8955950f * b, 0.0f);
+}
+
+static ImVec4 legacyHdrToneMap(const ImVec4& color)
+{
+    constexpr float exposure = 1.0f;
+    constexpr float strength = 1.0f;
+
+    const float peak = std::max(color.x, std::max(color.y, color.z));
+
+    if (peak <= 0.0f)
+        return color;
+
+    const float exposedPeak = peak * exposure;
+    const float mappedPeak = exposedPeak / (1.0f + exposedPeak);
+
+    const float reinhardScale = mappedPeak / peak;
+    const float scale = 1.0f + (reinhardScale - 1.0f) * strength;
+
+    return ImVec4(color.x * scale, color.y * scale, color.z * scale, color.w);
+}
+
+static ImVec4 toneMapColor(const ImVec4& color)
+{
+    const auto mode = getUiTargetMode();
+
+    switch (mode)
+    {
+    case UiTargetMode::SDR:
+        return color;
+
+    case UiTargetMode::LinearHDR:
+        return ImVec4(srgbToLinear(color.x), srgbToLinear(color.y), srgbToLinear(color.z), color.w);
+
+    case UiTargetMode::ScRGB:
+    {
+        constexpr float scRgbReferenceWhiteNits = 80.0f;
+        constexpr float hdrUiWhiteNits = 203.0f;
+
+        const float uiWhiteNits = State::Instance().hdrOutputActive ? hdrUiWhiteNits : scRgbReferenceWhiteNits;
+
+        const float scale = uiWhiteNits / scRgbReferenceWhiteNits;
+
+        return ImVec4(srgbToLinear(color.x) * scale, srgbToLinear(color.y) * scale, srgbToLinear(color.z) * scale,
+                      color.w);
+    }
+
+    case UiTargetMode::PQ:
+        // Direct ImGui rendering into a nonlinear PQ target.
+        //
+        // Proper PQ encoding of vertex colors produces incorrect results
+        // with the standard ImGui alpha blend state because blending then
+        // happens in PQ space.
+        //
+        // Keep the known-good legacy compression until PQ rendering is
+        // moved to a linear intermediate/composite pass.
+        return legacyHdrToneMap(color);
+
+    case UiTargetMode::HLG:
+        // Same fundamental nonlinear-blending problem as PQ.
+        // Conservative compatibility behavior for now.
+        return legacyHdrToneMap(color);
+
+    default:
+        return color;
+    }
 }
 
 static void MenuHdrCheck(ImGuiIO io)
 {
-    // If game is using HDR, apply tone mapping to the ImGui style
-    if (State::Instance().isHdrActive ||
-        (!Config::Instance()->OverlayMenu.value_or_default() && State::Instance().currentFeature != nullptr &&
-         State::Instance().currentFeature->IsHdr()))
+    if (!_hdrTonemapApplied)
     {
-        if (!_hdrTonemapApplied)
+        ImGuiStyle& style = ImGui::GetStyle();
+        const auto mode = getUiTargetMode();
+
+        LOG_INFO("Output HDR: {}, UI Mode: {}", State::Instance().hdrOutputActive, magic_enum::enum_name(mode));
+
+        CopyMemory(SdrColors, style.Colors, sizeof(style.Colors));
+
+        // Apply tone mapping to the ImGui style
+        for (int i = 0; i < ImGuiCol_COUNT; ++i)
         {
-            ImGuiStyle& style = ImGui::GetStyle();
-
-            CopyMemory(SdrColors, style.Colors, sizeof(style.Colors));
-
-            // Apply tone mapping to the ImGui style
-            for (int i = 0; i < ImGuiCol_COUNT; ++i)
-            {
-                ImVec4 color = style.Colors[i];
-                style.Colors[i] = toneMapColor(color);
-            }
-
-            _hdrTonemapApplied = true;
+            ImVec4 color = style.Colors[i];
+            style.Colors[i] = toneMapColor(color);
         }
-    }
-    else
-    {
-        if (_hdrTonemapApplied)
-        {
-            ImGuiStyle& style = ImGui::GetStyle();
-            CopyMemory(style.Colors, SdrColors, sizeof(style.Colors));
-            _hdrTonemapApplied = false;
-        }
+
+        _hdrTonemapApplied = true;
     }
 }
 
@@ -964,8 +1115,11 @@ inline static std::string GetDispatchString(UINT source)
     }
 }
 
-static void ApplyThemeStyle()
+void MenuCommon::ApplyThemeStyle()
 {
+    if (ImGui::GetCurrentContext() == nullptr)
+        return;
+
     ImGuiStyle& style = ImGui::GetStyle();
 
     auto conf = Config::Instance();
@@ -1577,9 +1731,8 @@ void MenuCommon::RenderNotifications(RenderMenuContext& ctx)
     auto& io = ctx.io;
 
     // Notifications
-    bool tonemapRequired = State::Instance().isHdrActive ||
-                           (!Config::Instance()->OverlayMenu.value_or_default() &&
-                            State::Instance().currentFeature != nullptr && State::Instance().currentFeature->IsHdr());
+    const UiTargetMode uiTargetMode = getUiTargetMode();
+    const bool tonemapRequired = uiTargetMode != UiTargetMode::SDR;
 
     float screenHeight = State::Instance().screenHeight;
     if (io.DisplaySize.y != 0)
@@ -3062,7 +3215,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
     outputOptions = {
         { FGOutput::NoFG, "None" },
         { FGOutput::FSRFG, "FSR FG", "FSR3/4-FG, RDNA4 autoupgrades to FSR4-FG\n\nFSR4-FG sometimes better/worse than XeFG" },
-        { FGOutput::DLSSG, "DLSSG", "DLSSG output\ncan be used in conjuction with Nukem's for example" },
+        { FGOutput::DLSSG, "DLSSG", "DLSSG output\nCan be used in conjuction with Nukem's for example" },
         { FGOutput::XeFG, "XeFG", "XeFG - heaviest, but best universal FG\n\nXeFG 3 overall deals best with HUD\n\nEnable UI Composition if HUD ghosting" },
     };
 
@@ -3134,10 +3287,14 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
     nvngxOptions = {
         { FGNvngxReplacement::None, "None (Real DLSSG)", "Real DLSSG, For RTX 40xx and above"},
         { FGNvngxReplacement::Nukems, "Nukem's", "FSR 3 FG" },
-        { FGNvngxReplacement::Arturs, "Enabler", "FSR 3 MFG" },
-        { FGNvngxReplacement::FFX, "FSR 3/4 FG", "FSR 3/4 FG using the FFX" },
-        { FGNvngxReplacement::Combo, "FFX + Enabler", "FFX for the middle fake frame, Enabler for the rest\n\n"
-                                                      "2x - FFX\n3x - Enabler\n4x - FFX + Enabler\n5x - Enabler\n6x - FFX + Enabler" },
+        { FGNvngxReplacement::Arturs, "Enabler", "FSR 3 MFG mod" },
+        { FGNvngxReplacement::FFX, "FSR 3/4 FG", "FSR 3/4 FG using the FFX upgrade\n\n"
+                                                 "Partially based on Nukems, uses SL swapchain\n"
+                                                 "Possibly better performance and frame pacing compared to FSR-FG output"},
+        { FGNvngxReplacement::Combo, "FFX + Enabler", "Use if FSR4-FG is supported, otherwise stick to Enabler\n\n"
+                                                      "FFX used for the middle fake frame, Enabler for the rest\n\n"
+                                                      "2x - FFX\n3x - Enabler\n4x - FFX + Enabler\n5x - Enabler\n6x - FFX + Enabler\n\n"
+                                                      "Due to pacing, only odd number of fake frames are able to use FFX"},
     };
 
     // clang-format on
@@ -3258,8 +3415,6 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
             if (maxInterpolationCount >= 1)
             {
-                const char* intModes[] = { "Default", "Off", "2X", "3X", "4X", "5X", "6X" };
-
                 // Map config value to UI index
                 int currentSet = 0;
                 if (config->FGDLSSGOverrideInterpolationCount.has_value())
@@ -3267,15 +3422,29 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
                     currentSet = config->FGDLSSGOverrideInterpolationCount.value() + 1;
                 }
 
-                const char* currentIntCount = intModes[currentSet];
+                std::string currentIntCountStr;
+                if (currentSet == 0)
+                    currentIntCountStr = "Default";
+                else if (currentSet == 1)
+                    currentIntCountStr = "Off";
+                else
+                    currentIntCountStr = std::to_string(currentSet) + "X";
 
                 ImGui::PushItemWidth(95.0f * menuResScale);
 
-                if (ImGui::BeginCombo("Override DLSSG Ratio", currentIntCount))
+                if (ImGui::BeginCombo("Override DLSSG Ratio", currentIntCountStr.c_str()))
                 {
                     for (int i = 0; i <= maxInterpolationCount + 1; i++)
                     {
-                        if (ImGui::Selectable(intModes[i], (currentSet == i)))
+                        std::string modeStr;
+                        if (i == 0)
+                            modeStr = "Default";
+                        else if (i == 1)
+                            modeStr = "Off";
+                        else
+                            modeStr = std::to_string(i) + "X";
+
+                        if (ImGui::Selectable(modeStr.c_str(), (currentSet == i)))
                         {
                             if (i == 0)
                             {
@@ -3540,6 +3709,9 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
     auto& menuResScale = ctx.menuResScale;
     auto& primaryGpu = *ctx.primaryGpu;
     auto fgOutput = state.currentFG;
+
+    const UiTargetMode uiTargetMode = getUiTargetMode();
+    const bool outputIsHdr = uiTargetMode != UiTargetMode::SDR;
 
     // FSR FG controls
     if (state.activeFgOutput == FGOutput::FSRFG && state.activeFgInput != FGInput::NoFG &&
@@ -3837,7 +4009,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "Borderless display mode required!");
             }
 
-            if (!ignoreChecks && state.isHdrActive)
+            if (!ignoreChecks && outputIsHdr)
             {
                 if (state.currentSwapchainDesc.BufferDesc.Format >= DXGI_FORMAT_R32G32B32A32_TYPELESS &&
                     state.currentSwapchainDesc.BufferDesc.Format <= DXGI_FORMAT_R16G16B16A16_SINT)
@@ -3878,17 +4050,19 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
         {
             ImGui::SameLine(0.0f, 16.0f);
 
-            const char* intModes[] = { "2X", "3X", "4X", "5X", "6X" };
             auto currentSet = fgOutput->GetInterpolatedFrameCount() - 1;
-            auto currentIntCount = intModes[currentSet];
+
+            std::string currentIntCountStr = std::to_string(currentSet + 2) + "X";
 
             ImGui::PushItemWidth(95.0f * menuResScale);
 
-            if (ImGui::BeginCombo("MFG", currentIntCount))
+            if (ImGui::BeginCombo("MFG", currentIntCountStr.c_str()))
             {
                 for (int i = 0; i < maxInterpolationCount; i++)
                 {
-                    if (ImGui::Selectable(intModes[i], (currentSet == i)))
+                    std::string modeStr = std::to_string(i + 2) + "X";
+
+                    if (ImGui::Selectable(modeStr.c_str(), (currentSet == i)))
                     {
                         LOG_DEBUG("XeFG Interpolation Count set to: {}", i + 1);
                         state.fgChanged = true;
@@ -4002,7 +4176,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
     {
         ImGui::SeparatorText("Frame Generation (DLSSG)");
 
-        if (state.activeFgNvngx == FGNvngxReplacement::None && state.isHdrActive)
+        if (state.activeFgNvngx == FGNvngxReplacement::None && (state.hdrOutputActive && outputIsHdr))
         {
             if (state.currentSwapchainDesc.BufferDesc.Format >= DXGI_FORMAT_R32G32B32A32_TYPELESS &&
                 state.currentSwapchainDesc.BufferDesc.Format <= DXGI_FORMAT_R16G16B16A16_SINT)
@@ -4042,17 +4216,19 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             ImGui::BeginDisabled(config->FGDLSSGForceDMFG.value_or_default());
 
-            const char* intModes[] = { "2X", "3X", "4X", "5X", "6X" };
             auto currentSet = fgOutput->GetInterpolatedFrameCount() - 1;
-            auto currentIntCount = intModes[currentSet];
+
+            std::string currentIntCountStr = std::to_string(currentSet + 2) + "X";
 
             ImGui::PushItemWidth(95.0f * menuResScale);
 
-            if (ImGui::BeginCombo("MFG", currentIntCount))
+            if (ImGui::BeginCombo("MFG", currentIntCountStr.c_str()))
             {
                 for (int i = 0; i < maxInterpolationCount; i++)
                 {
-                    if (ImGui::Selectable(intModes[i], (currentSet == i)))
+                    std::string modeStr = std::to_string(i + 2) + "X";
+
+                    if (ImGui::Selectable(modeStr.c_str(), (currentSet == i)))
                     {
                         LOG_DEBUG("DLSSG Interpolation Count set to: {}", i + 1);
                         config->FGDLSSGInterpolationCount = i + 1;

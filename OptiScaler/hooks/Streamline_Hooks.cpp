@@ -820,20 +820,17 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(sl::param::IParameters* params, cons
     auto primaryGpu = IdentifyGpu::getPrimaryGpu();
     if (primaryGpu.vendorId != VendorId::Nvidia || !primaryGpu.dlssCapable)
     {
-        if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
-        {
-            if (configJson.contains("/external/vk/instance/extensions"_json_pointer))
-                configJson["external"]["vk"]["instance"]["extensions"].clear();
+        if (configJson.contains("/external/vk/instance/extensions"_json_pointer))
+            configJson["external"]["vk"]["instance"]["extensions"].clear();
 
-            if (configJson.contains("/external/vk/device/extensions"_json_pointer))
-                configJson["external"]["vk"]["device"]["extensions"].clear();
+        if (configJson.contains("/external/vk/device/extensions"_json_pointer))
+            configJson["external"]["vk"]["device"]["extensions"].clear();
 
-            if (configJson.contains("/external/vk/device/1.2_features"_json_pointer))
-                configJson["external"]["vk"]["device"]["1.2_features"].clear();
+        if (configJson.contains("/external/vk/device/1.2_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.2_features"].clear();
 
-            if (configJson.contains("/external/vk/device/1.3_features"_json_pointer))
-                configJson["external"]["vk"]["device"]["1.3_features"].clear();
-        }
+        if (configJson.contains("/external/vk/device/1.3_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.3_features"].clear();
     }
 
     PatchSL1PluginJson(configJson);
@@ -936,13 +933,20 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(sl::param::IParameters* params, con
         //     configJson["external"]["vk"]["opticalflow"]["supported"] = true;
     }
 
-    if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
+    if (primaryGpu.vendorId != VendorId::Nvidia || !primaryGpu.dlssCapable)
     {
         if (configJson.contains("/external/vk/instance/extensions"_json_pointer))
             configJson["external"]["vk"]["instance"]["extensions"].clear();
 
         if (configJson.contains("/external/vk/device/extensions"_json_pointer))
             configJson["external"]["vk"]["device"]["extensions"].clear();
+
+        if (configJson.contains("/external/vk/device/1.2_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.2_features"].clear();
+
+        if (configJson.contains("/external/vk/device/1.3_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.3_features"].clear();
     }
 
     PatchSL1PluginJson(configJson);
@@ -1018,13 +1022,20 @@ bool StreamlineHooks::hklocal_dlssg_slOnPluginLoad(sl::param::IParameters* param
     if (configJson.contains("/external/hws/required"_json_pointer))
         configJson["external"]["hws"]["required"] = false; // disable eHardwareSchedulingRequired
 
-    if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
+    if (primaryGpu.vendorId != VendorId::Nvidia || !primaryGpu.dlssCapable)
     {
         if (configJson.contains("/external/vk/instance/extensions"_json_pointer))
             configJson["external"]["vk"]["instance"]["extensions"].clear();
 
         if (configJson.contains("/external/vk/device/extensions"_json_pointer))
             configJson["external"]["vk"]["device"]["extensions"].clear();
+
+        if (configJson.contains("/external/vk/device/1.2_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.2_features"].clear();
+
+        if (configJson.contains("/external/vk/device/1.3_features"_json_pointer))
+            configJson["external"]["vk"]["device"]["1.3_features"].clear();
     }
 
     config = configJson.dump();
@@ -1314,8 +1325,8 @@ bool StreamlineHooks::hkreflex_slOnPluginLoad(sl::param::IParameters* params, co
 
     nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
 
-    if (IdentifyGpu::getPrimaryGpu().vendorId != VendorId::Nvidia &&
-        Config::Instance()->VulkanExtensionSpoofing.value_or_default())
+    auto primaryGpu = IdentifyGpu::getPrimaryGpu();
+    if (primaryGpu.vendorId != VendorId::Nvidia || !primaryGpu.dlssCapable)
     {
         if (configJson.contains("/external/vk/instance/extensions"_json_pointer))
             configJson["external"]["vk"]["instance"]["extensions"].clear();
