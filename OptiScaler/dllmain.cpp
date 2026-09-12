@@ -49,6 +49,7 @@
 #include <misc/IdentifyGpu.h>
 #include <sha1/sha1.hpp>
 #include <mfgunlock/MfgUnlock.h>
+#include <framegen/dlssg/AmpereMfgLoader.h>
 
 static std::vector<HMODULE> _asiHandles;
 static std::vector<std::filesystem::directory_entry> _lateLoadingEntries;
@@ -1841,6 +1842,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         // DLSS MFG unlock (RTX 40): needs the config and the logger, nothing else yet
         MfgUnlock::Init(hModule);
+
+        // The Turing/Ampere route is a sideload rather than a patch, so it is independent of the
+        // Ada unlock above and refuses to run alongside it.
+        AmpereMfgLoader::TrySetup();
         spdlog::info("");
         spdlog::info("LogLevel: {}", Config::Instance()->LogLevel.value_or_default());
 

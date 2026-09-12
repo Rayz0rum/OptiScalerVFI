@@ -327,6 +327,22 @@ bool Config::Reload(std::filesystem::path iniPath)
             MfgUnlockRaiseCeiling.set_from_config(readBool("MfgUnlock", "RaiseFrameCeiling"));
             MfgUnlockForceOta.set_from_config(readBool("MfgUnlock", "ForceOTAPlugins"));
 
+            FGDLSSGAmpereMfgUnlock.set_from_config(readBool("MfgUnlock", "AmpereMfgUnlock"));
+            FGDLSSGAmpereMfgMaxFrames.set_from_config(readInt("MfgUnlock", "AmpereMfgMaxFrames"));
+
+            if (FGDLSSGAmpereMfgMaxFrames.has_value() &&
+                (FGDLSSGAmpereMfgMaxFrames.value() < 1 || FGDLSSGAmpereMfgMaxFrames.value() > 3))
+                FGDLSSGAmpereMfgMaxFrames.reset();
+
+            if (auto kernel = readString("MfgUnlock", "AmpereMfgKernelImage"); kernel.has_value())
+            {
+                // Only the three the companion ini accepts; anything else falls back to Auto.
+                if (*kernel == "PTX" || *kernel == "Cubin" || *kernel == "Auto")
+                    FGDLSSGAmpereMfgKernelImage.set_from_config(*kernel);
+            }
+
+            FGDLSSGAmpereMfgHardwareBilinear.set_from_config(readBool("MfgUnlock", "AmpereMfgHardwareBilinear"));
+
             // --- DLSS 5 Neural Rendering (OptiScaler/dlssnr) ---
 #if OPTI_DLSSNR
             DlssNrEnabled.set_from_config(readBool("DlssNr", "Enabled"));
@@ -1206,6 +1222,14 @@ bool Config::SaveIni()
                  GetBoolValue(Instance()->MfgUnlockRaiseCeiling.value_for_config()).c_str());
     ini.SetValue("MfgUnlock", "ForceOTAPlugins",
                  GetBoolValue(Instance()->MfgUnlockForceOta.value_for_config()).c_str());
+    ini.SetValue("MfgUnlock", "AmpereMfgUnlock",
+                 GetBoolValue(Instance()->FGDLSSGAmpereMfgUnlock.value_for_config()).c_str());
+    ini.SetValue("MfgUnlock", "AmpereMfgMaxFrames",
+                 GetIntValue(Instance()->FGDLSSGAmpereMfgMaxFrames.value_for_config()).c_str());
+    ini.SetValue("MfgUnlock", "AmpereMfgKernelImage",
+                 Instance()->FGDLSSGAmpereMfgKernelImage.value_for_config_or("auto").c_str());
+    ini.SetValue("MfgUnlock", "AmpereMfgHardwareBilinear",
+                 GetBoolValue(Instance()->FGDLSSGAmpereMfgHardwareBilinear.value_for_config()).c_str());
 
     // --- DLSS 5 Neural Rendering (OptiScaler/dlssnr) ---
 #if OPTI_DLSSNR

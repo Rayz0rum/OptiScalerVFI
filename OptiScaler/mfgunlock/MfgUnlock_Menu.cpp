@@ -6,6 +6,7 @@
 #include <State.h>
 #include <hooks/Streamline_Hooks.h>
 #include <menu/menu_common.h>
+#include <framegen/dlssg/AmpereMfgLoader.h>
 
 #include <imgui/imgui.h>
 
@@ -32,6 +33,83 @@ void HelpMarker(const char* tip)
 }
 
 } // namespace
+
+/*
+ * Turing and Ampere, which get there by a different route entirely.
+ *
+ * Its own header rather than a checkbox inside the Ada one, because nothing about the two is shared:
+ * Ada rewrites a comparison inside NVIDIA's snippet, this sideloads a third-party build of frame
+ * generation compiled for architectures NVIDIA never shipped one for. They are mutually exclusive and
+ * the loader refuses to start if both are on.
+ */
+static void RenderAmpereSection(Config* config)
+{
+    ImGui::Spacing();
+
+    if (auto ch = ScopedCollapsingHeader("DLSS Multi Frame Generation (RTX 20 / 30 sideload)");
+        !ch.IsHeaderOpen())
+        return;
+
+    ScopedIndent indent {};
+    ImGui::Spacing();
+
+    const auto status = AmpereMfgLoader::LastStatus();
+
+    if (!status.ErrorMessage.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "%s", status.ErrorMessage.c_str());
+    else if (status.FsrFallbackActive)
+        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f), "Falling back to OptiScaler's own FSR frame generation.");
+    else if (status.DllLoaded)
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "dlssg_sm86.dll loaded.");
+    else if (status.Enabled && !status.DllFound)
+        ImGui::TextColored(ImVec4(0.9f, 0.8f, 0.4f, 1.0f),
+                           "dlssg_sm86.dll not found - put it in OptiScaler/dlssg_sm86/.");
+    else if (!status.Enabled)
+        ImGui::TextDisabled("Off. Takes effect at startup.");
+
+    bool enabled = config->FGDLSSGAmpereMfgUnlock.value_or_default();
+    if (ImGui::Checkbox("Enable RTX 20/30 multi-frame generation", &enabled))
+        config->FGDLSSGAmpereMfgUnlock = enabled;
+
+    HelpMarker("Sideloads a third-party build of DLSS Frame Generation compiled for Turing and"
+                   "\nAmpere, and writes the companion ini it expects."
+                   "\n\nThis is not a patch of NVIDIA's snippet and could not be. The Ada unlock"
+                   "\nabove rewrites a Blackwell comparison inside nvngx_dlssg.dll; Turing and"
+                   "\nAmpere are excluded a step earlier, by the snippet's own hardcoded minimum"
+                   "\narchitecture of 0x190 (Ada). Lowering that would hand the feature hardware"
+                   "\nNVIDIA never built an implementation for -- so a separate implementation is"
+                   "\nloaded instead."
+                   "\n\nYOU supply dlssg_sm86.dll. It is not ours and is not shipped. Put it in"
+                   "\nOptiScaler/dlssg_sm86/ beside the OptiScaler folder."
+                   "\n\nMutually exclusive with the RTX 40 unlock, and applied at startup, so a"
+                   "\nchange here needs a restart.");
+
+    int frames = config->FGDLSSGAmpereMfgMaxFrames.value_or_default();
+    if (ImGui::SliderInt("Generated frames", &frames, 1, 3, "%d"))
+        config->FGDLSSGAmpereMfgMaxFrames = frames;
+
+    HelpMarker("Generated frames, not total: 1 is 2x, 2 is 3x, 3 is 4x.");
+
+    static const char* kernelNames[] = { "Auto", "PTX", "Cubin" };
+    const std::string current = config->FGDLSSGAmpereMfgKernelImage.value_or("Auto");
+    int kernel = current == "PTX" ? 1 : (current == "Cubin" ? 2 : 0);
+
+    if (ImGui::Combo("Kernel image", &kernel, kernelNames, IM_ARRAYSIZE(kernelNames)))
+        config->FGDLSSGAmpereMfgKernelImage = kernelNames[kernel];
+
+    HelpMarker("How the interpolation kernel is supplied. Auto picks PTX on Turing and on"
+                   "\nLinux, Cubin otherwise, which is the right answer unless you are"
+                   "\ntroubleshooting.");
+
+    bool bilinear = config->FGDLSSGAmpereMfgHardwareBilinear.value_or_default();
+    if (ImGui::Checkbox("Hardware bilinear", &bilinear))
+        config->FGDLSSGAmpereMfgHardwareBilinear = bilinear;
+
+    HelpMarker("Approximate sampling. Ampere only, and off by default -- it trades a little"
+                   "\naccuracy for speed.");
+
+    ImGui::Spacing();
+}
 
 void RenderMenu(Config* config, float menuResScale)
 {
@@ -240,6 +318,8 @@ void RenderMenu(Config* config, float menuResScale)
 
         ImGui::Spacing();
     }
+
+    RenderAmpereSection(config);
 }
 
 } // namespace MfgUnlock

@@ -545,6 +545,28 @@ class Config
     CustomOptional<bool> MfgUnlockForceFlipMeterOff { false };
     CustomOptional<bool> MfgUnlockRaiseCeiling { false };
     CustomOptional<bool> MfgUnlockForceOta { false };
+
+    // --- Multi-frame generation on Turing and Ampere (RTX 20 / RTX 30) ------------------------------
+    //
+    // A different mechanism from the Ada unlock above, because a different thing is in the way. Ada is
+    // gated by a Blackwell comparison inside NVIDIA's own snippet, which can be rewritten. Turing and
+    // Ampere are gated by the snippet's hardcoded minimum architecture -- nvngx_dlssg returns 0x190
+    // (Ada) from NVSDK_NGX_GetGPUArchitecture -- and lowering that would only hand the feature hardware
+    // NVIDIA never built an implementation for.
+    //
+    // So this does not patch anything. It sideloads a THIRD-PARTY build of DLSS Frame Generation
+    // compiled for those architectures, dlssg_sm86.dll, and writes the companion ini it expects. The
+    // router selects SM75 for Turing or SM86 for Ampere.
+    //
+    // You supply that DLL; it is not ours and is not shipped. Put it in OptiScaler/dlssg_sm86/.
+    // Mutually exclusive with the Ada unlock above, which is checked at setup.
+    CustomOptional<bool> FGDLSSGAmpereMfgUnlock { false };
+    // Generated frames, not total: 1 = 2x, 2 = 3x, 3 = 4x.
+    CustomOptional<int> FGDLSSGAmpereMfgMaxFrames { 3 };
+    // Auto / PTX / Cubin. Auto picks PTX on Turing and on Linux, Cubin otherwise.
+    CustomOptional<std::string, NoDefault> FGDLSSGAmpereMfgKernelImage;
+    // Approximate sampling, SM86 only.
+    CustomOptional<bool> FGDLSSGAmpereMfgHardwareBilinear { false };
     // --- end DLSS MFG unlock -------------------------------------------------------------------------
 
     // DLSS

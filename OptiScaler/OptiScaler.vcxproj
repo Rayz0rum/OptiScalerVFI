@@ -418,6 +418,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\output_scaling\precompile\bcds_magc_Shader_Vk.h" />
     <ClInclude Include="shaders\output_scaling\precompile\bcus_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\RCAS_Vk.h" />
+    <ClInclude Include="framegen\dlssg\AmpereMfgLoader.h" />
     <ClInclude Include="mfgunlock\MfgUnlock_Midpoint.h" />
     <ClInclude Include="mfgunlock\MfgUnlock_Patches.h" />
     <ClInclude Include="mfgunlock\MfgUnlock.h" />
@@ -828,6 +829,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\DlssNr_Dx12.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Vk.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />
+    <ClCompile Include="framegen\dlssg\AmpereMfgLoader.cpp" />
     <ClCompile Include="mfgunlock\MfgUnlock_Patches.cpp" />
     <ClCompile Include="mfgunlock\MfgUnlock_Host.cpp" />
     <ClCompile Include="mfgunlock\MfgUnlock_Menu.cpp" />
