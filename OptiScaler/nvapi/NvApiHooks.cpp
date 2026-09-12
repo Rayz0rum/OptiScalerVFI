@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "NvApiHooks.h"
+
+#include <dlssnr/DlssNrNative.h>
 #include <NvApiDriverSettings.h>
 
 #include "State.h"
@@ -231,7 +233,7 @@ void* __stdcall NvApiHooks::hkNvAPI_QueryInterface(unsigned int InterfaceId)
 
         // LOG_DEBUG("counter: {}, hookReflex()", qiCounter);
         ReflexHooks::hookReflex(o_NvAPI_QueryInterface);
-        return ReflexHooks::getHookedReflex(InterfaceId);
+        return DlssNrNative::WrapNvapi(InterfaceId, ReflexHooks::getHookedReflex(InterfaceId));
     }
 
     ReflexHooks::hookReflex(o_NvAPI_QueryInterface);
@@ -254,7 +256,15 @@ void* __stdcall NvApiHooks::hkNvAPI_QueryInterface(unsigned int InterfaceId)
 
     // LOG_DEBUG("counter: {} functionPointer: {:X}", qiCounter, (size_t)functionPointer);
 
-    return functionPointer;
+    /*
+     * Last, so every other hook above has had its say first.
+     *
+     * The FP8/NVFP4 hybrid works at a completely different level from the rest of this file: it is
+     * not spoofing a capability, it is watching for the CUDA-in-D3D12 interop entry points and
+     * standing in front of them, so that when the Neural Rendering snippet launches its own kernels
+     * the quantised ones run instead. Everything not on that short list is handed straight back.
+     */
+    return DlssNrNative::WrapNvapi(InterfaceId, functionPointer);
 }
 
 // Requires HMODULE to make sure nvapi is loaded before calling this function

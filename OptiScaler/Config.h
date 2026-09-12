@@ -495,6 +495,17 @@ class Config
     CustomOptional<float> DlssNrColourGuard { 1.0f };
 
 
+    // Which numeric format the model's own kernels run in.
+    //
+    // 0 leaves NVIDIA's FP8 path alone and is the default. 4 selects an experimental NVFP4 hybrid:
+    // OptiScaler stands in front of the CUDA-in-D3D12 interop entry points and substitutes quantised
+    // fused kernels for the snippet's own when it launches them.
+    //
+    // That needs vendor assets -- weights, cubins and a params builder, about 45 MB -- which are not
+    // ours and are not shipped. Without them the hybrid reports why and the FP8 path continues.
+    // Experimental, and only the feed-forward blocks are intercepted.
+    CustomOptional<uint32_t> DlssNrPrecision { 0 };
+
     // The most the pass may multiply or divide a pixel by. A detail pass has no business restyling a
     // light source, whatever the model returns.
     CustomOptional<float> DlssNrMaxRatio { 2.0f };

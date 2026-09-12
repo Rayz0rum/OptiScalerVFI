@@ -10,6 +10,7 @@
 #include "DlssNr_Diag.h"
 #include "DlssNr_Jitter.h"
 #include "DlssNr_Report.h"
+#include "DlssNrNative.h"
 
 #include <Config.h>
 #include <State.h>
@@ -1169,6 +1170,17 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
      * permanent reset and made the result impossible to judge.
      */
     const TuningSnapshot& tuning = SettledTuning(cfg);
+
+    /*
+     * The quantised-kernel hybrid, told what it should be doing.
+     *
+     * It works nowhere near here -- it stands in front of the CUDA interop entry points and swaps the
+     * snippet's own kernels as they launch -- but this is the one place that knows Neural Rendering is
+     * actually running, so it is where it gets switched on. Both calls are cheap flag sets behind a
+     * mutex and the module itself decides what needs a restart.
+     */
+    DlssNrNative::SetEnabled(cfg.DlssNrEnabled.value_or_default());
+    DlssNrNative::SetPrecision(cfg.DlssNrPrecision.value_or_default());
 
     g_stages.start(diag::Stage::Inference, cmdList);
 

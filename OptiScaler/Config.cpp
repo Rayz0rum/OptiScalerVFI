@@ -360,6 +360,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
             DlssNrColourGuard.set_from_config(readFloat("DlssNr", "ColourGuard"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
+            DlssNrPrecision.set_from_config(readUInt("DlssNr", "Precision"));
             DlssNrMinRatio.set_from_config(readFloat("DlssNr", "MinRatio"));
             DlssNrDetailBand.set_from_config(readFloat("DlssNr", "DetailBand"));
             DlssNrToneStrength.set_from_config(readFloat("DlssNr", "ToneStrength"));
@@ -1260,6 +1261,7 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->DlssNrColourStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ColourGuard", GetFloatValue(Instance()->DlssNrColourGuard.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MaxRatio", GetFloatValue(Instance()->DlssNrMaxRatio.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Precision", GetIntValue(Instance()->DlssNrPrecision.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MinRatio", GetFloatValue(Instance()->DlssNrMinRatio.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailBand", GetFloatValue(Instance()->DlssNrDetailBand.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ToneStrength",

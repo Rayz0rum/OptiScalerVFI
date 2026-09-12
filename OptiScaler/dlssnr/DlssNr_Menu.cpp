@@ -7,6 +7,8 @@
 #include <Config.h>
 #include <menu/menu_common.h>
 
+#include "DlssNrNative.h"
+
 #include <imgui/imgui.h>
 
 namespace
@@ -685,6 +687,37 @@ void RenderMenu(Config* config, float menuResScale)
                            "\npushed too hard reads as texture rather than as a face."
                            "\n\nChanging it makes the model drop its temporal history, so give it a"
                            "\nmoment to settle before judging.");
+        }
+
+        /*
+         * The quantised-kernel hybrid. Its own control because it is not a quality setting -- it
+         * changes what arithmetic the model's kernels are performed in, and nothing else here does
+         * anything comparable.
+         */
+        {
+            static const char* precisionNames[] = { "FP8 (NVIDIA's own)", "NVFP4 hybrid (experimental)" };
+            int precision = config->DlssNrPrecision.value_or_default() == 4 ? 1 : 0;
+
+            if (ImGui::Combo("Kernel precision", &precision, precisionNames, IM_ARRAYSIZE(precisionNames)))
+                config->DlssNrPrecision = precision == 1 ? 4u : 0u;
+
+            HelpMarker("What arithmetic the model's own kernels run in."
+                           "\n\nFP8 leaves NVIDIA's path alone and is the default. The NVFP4 hybrid"
+                           "\nstands in front of the CUDA interop entry points and substitutes"
+                           "\nquantised fused kernels for the snippet's own as they launch -- so it"
+                           "\nchanges how the model is computed, not what it is asked to do."
+                           "\n\nIt needs vendor assets -- weights, cubins and a params builder, around"
+                           "\n45 MB -- which are not ours and are not shipped. Without them it says"
+                           "\nso below and the FP8 path carries on untouched."
+                           "\n\nExperimental, and only the feed-forward blocks are intercepted.");
+
+            if (const auto status = DlssNrNative::Status(); !status.empty())
+            {
+                if (DlssNrNative::IsActive())
+                    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "%s", status.c_str());
+                else
+                    ImGui::TextDisabled("%s", status.c_str());
+            }
         }
 
         ImGui::SeparatorText("Colour");
