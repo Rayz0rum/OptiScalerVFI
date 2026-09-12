@@ -673,6 +673,88 @@ bool TuningMatchesFeature(const Config& cfg)
            g_nr.builtAutoMask == cfg.DlssNrAutoMask.value_or_default();
 }
 
+/*
+ * The appearance controls actually written to the model, held still until they stop moving.
+ *
+ * The model resets its own temporal history whenever one of these changes -- its internals name the
+ * routine CG2R_ResetTemporalHistoryOnControlChange, and it logs "reset temporal history" when it
+ * fires. That is correct behaviour on its part: a new tone strength makes the accumulated result
+ * wrong, so the accumulation has to start again.
+ *
+ * The consequence is ours to manage. These values were written straight from config on every single
+ * evaluate, so dragging a slider handed the model a different control value sixty times a second and
+ * it threw its history away on each one. It never got more than a frame to converge, which is exactly
+ * what "the tone updates slowly and looks artefacty while I am adjusting it" is: not slow convergence
+ * but continuous restarting, the transient state made permanent for as long as the drag lasts.
+ *
+ * So a change is allowed to settle before it is sent. The model then resets once and converges once.
+ * The cost is that a drag shows nothing until it stops, which is the better trade -- a clean result a
+ * fraction of a second later beats a continuously restarting one you cannot judge at all.
+ *
+ * Deliberately short. Long enough to swallow a drag, short enough that releasing the mouse and seeing
+ * the result still feels immediate.
+ */
+constexpr unsigned long long kTuningSettleFrames = 8;
+
+struct TuningSnapshot
+{
+    unsigned int preset = 0;
+    float intensity = 0.0f;
+    unsigned int style = 0;
+    float localStructure = 0.0f;
+    float localTone = 0.0f;
+    float skinStructure = 0.0f;
+    bool autoMask = false;
+
+    bool operator==(const TuningSnapshot&) const = default;
+};
+
+TuningSnapshot ReadTuning(const Config& cfg)
+{
+    TuningSnapshot t;
+    t.preset = cfg.DlssNrPreset.value_or_default();
+    t.intensity = cfg.DlssNrIntensity.value_or_default();
+    t.style = cfg.DlssNrStyle.value_or_default();
+    t.localStructure = cfg.DlssNrLocalStructure.value_or_default();
+    t.localTone = cfg.DlssNrLocalTone.value_or_default();
+    t.skinStructure = cfg.DlssNrSkinStructure.value_or_default();
+    t.autoMask = cfg.DlssNrAutoMask.value_or_default();
+    return t;
+}
+
+// What was last handed to the model, what config is asking for, and when it last moved.
+TuningSnapshot g_sentTuning;
+TuningSnapshot g_lastSeenTuning;
+unsigned long long g_tuningMovedAt = 0;
+bool g_tuningPrimed = false;
+
+const TuningSnapshot& SettledTuning(const Config& cfg)
+{
+    const TuningSnapshot wanted = ReadTuning(cfg);
+
+    // The first frame adopts whatever is configured rather than waiting, so a session does not open
+    // on defaults for a fifth of a second.
+    if (!g_tuningPrimed)
+    {
+        g_tuningPrimed = true;
+        g_sentTuning = wanted;
+        g_lastSeenTuning = wanted;
+        return g_sentTuning;
+    }
+
+    if (!(wanted == g_lastSeenTuning))
+    {
+        g_lastSeenTuning = wanted;
+        g_tuningMovedAt = g_frames;
+        return g_sentTuning;
+    }
+
+    if (!(wanted == g_sentTuning) && g_frames - g_tuningMovedAt >= kTuningSettleFrames)
+        g_sentTuning = wanted;
+
+    return g_sentTuning;
+}
+
 void RecordBuiltTuning(const Config& cfg)
 {
     g_nr.builtPreset = cfg.DlssNrPreset.value_or_default();
@@ -1081,16 +1163,21 @@ ID3D12Resource* EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_N
     int gameReset = 0;
     params->Get(NVSDK_NGX_Parameter_Reset, &gameReset);
 
+    /*
+     * The settled values, not the live ones. The model throws its temporal history away whenever one
+     * of these changes, so handing it a fresh number on every frame of a slider drag kept it in a
+     * permanent reset and made the result impossible to judge.
+     */
+    const TuningSnapshot& tuning = SettledTuning(cfg);
+
     g_stages.start(diag::Stage::Inference, cmdList);
 
     const int result = g_nr.evaluate(
         cmdList, g_nr.feature, g_nr.capabilityParams, modelInput, depthIn, motionIn, g_nr.output,
         workWidth, workHeight, guideWidth, guideHeight, g_nr.guideDepthInverted ? 1 : 0,
         (g_nr.reset || gameReset != 0 || cfg.DlssNrResetEveryFrame.value_or_default()) ? 1 : 0,
-        cfg.DlssNrIntensity.value_or_default(),
-        (int) cfg.DlssNrStyle.value_or_default(), cfg.DlssNrLocalStructure.value_or_default(),
-        cfg.DlssNrLocalTone.value_or_default(), cfg.DlssNrSkinStructure.value_or_default(),
-        cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWork,
+        tuning.intensity, (int) tuning.style, tuning.localStructure, tuning.localTone,
+        tuning.skinStructure, tuning.autoMask ? 1 : 0, g_nr.guideMvScaleX * mvToWork,
         g_nr.guideMvScaleY * mvToWork);
 
     g_stages.end(diag::Stage::Inference, cmdList);
